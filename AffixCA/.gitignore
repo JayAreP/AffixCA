@@ -1,0 +1,12 @@
+# Secrets and credentials
+secrets/
+
+# Local environment config (.env.example is committed for reference)
+.env
+
+# Auto-generated build version
+version.txt
+
+# Logs
+err.txt
+*.log

@@ -1,0 +1,18 @@
+# Profile: Code Signing Certificate
+# EKU: codeSigning + msCodeInd + msCodeCom (Authenticode)
+
+[ code_signing ]
+subjectKeyIdentifier    = hash
+authorityKeyIdentifier  = keyid:always
+basicConstraints        = critical,CA:false
+keyUsage                = critical,digitalSignature
+extendedKeyUsage        = codeSigning,msCodeInd,msCodeCom
+crlDistributionPoints   = @crl_info
+authorityInfoAccess     = @ocsp_issuer_info
+
+[ crl_info ]
+URI.0                   = ${ENV::CDP_URL}
+
+[ ocsp_issuer_info ]
+OCSP;URI.0              = ${ENV::OCSP_URL}
+caIssuers;URI.0         = ${ENV::AIA_URL}

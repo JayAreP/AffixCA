@@ -1,0 +1,28 @@
+# =============================================================================
+#  Affix/CA  ·  Standalone deployment (single container, full PKI)
+# =============================================================================
+
+name: affix-ca
+
+secrets:
+  ca_pass:
+    file: ./secrets/ca-pass.txt
+
+volumes:
+  ca-data:
+
+services:
+  affix-ca:
+    build: .
+    image: affix-ca:latest
+    container_name: affix-ca
+    hostname: affix-ca
+    ports:
+      - "${CA_PORT:-443}:8443"
+    volumes:
+      - ca-data:/ca
+    secrets:
+      - ca_pass
+    environment:
+      CA_SECRET_FILE: /run/secrets/ca_pass
+    restart: unless-stopped

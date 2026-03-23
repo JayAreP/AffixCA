@@ -1,0 +1,19 @@
+# Profile: OCSP Signing Certificate
+# EKU: OCSPSigning (critical) — includes noCheck extension
+
+[ ocsp_signing ]
+subjectKeyIdentifier    = hash
+authorityKeyIdentifier  = keyid:always
+basicConstraints        = critical,CA:false
+keyUsage                = critical,digitalSignature
+extendedKeyUsage        = critical,OCSPSigning
+noCheck                 = ignored
+crlDistributionPoints   = @crl_info
+authorityInfoAccess     = @ocsp_issuer_info
+
+[ crl_info ]
+URI.0                   = ${ENV::CDP_URL}
+
+[ ocsp_issuer_info ]
+OCSP;URI.0              = ${ENV::OCSP_URL}
+caIssuers;URI.0         = ${ENV::AIA_URL}

@@ -1,0 +1,26 @@
+{
+  "id": "tls-server",
+  "name": "TLS Server",
+  "description": "Web servers, load balancers, API endpoints",
+  "category": "tls",
+  "icon": "server",
+  "color": "#00e5ff",
+  "ekus": ["serverAuth"],
+  "keyUsage": ["digitalSignature", "keyEncipherment"],
+  "critical": true,
+  "maxDays": 825,
+  "defaultDays": 365,
+  "subjectFields": {
+    "cn": { "required": true, "label": "Common Name (FQDN)", "placeholder": "api.example.com" },
+    "o":  { "required": false, "label": "Organization" },
+    "ou": { "required": false, "label": "Organizational Unit" },
+    "c":  { "required": false, "label": "Country", "maxLength": 2 }
+  },
+  "sanTypes": ["DNS", "IP"],
+  "sanRequired": true,
+  "autoSanFromCN": true,
+  "generateKey": true,
+  "allowCSR": true,
+  "opensslExtFile": "tls-server.cnf",
+  "dynamicExt": false
+}

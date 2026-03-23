@@ -1,0 +1,25 @@
+{
+  "id": "code-signing",
+  "name": "Code Signing",
+  "description": "Software, drivers, scripts, Authenticode",
+  "category": "signing",
+  "icon": "code",
+  "color": "#f59e0b",
+  "ekus": ["codeSigning", "msCodeInd", "msCodeCom"],
+  "keyUsage": ["digitalSignature"],
+  "critical": true,
+  "maxDays": 1095,
+  "defaultDays": 395,
+  "subjectFields": {
+    "cn": { "required": true, "label": "Publisher Name", "placeholder": "Acme Software Inc." },
+    "o":  { "required": true, "label": "Organization" },
+    "c":  { "required": false, "label": "Country", "maxLength": 2 }
+  },
+  "sanTypes": [],
+  "sanRequired": false,
+  "autoSanFromCN": false,
+  "generateKey": true,
+  "allowCSR": true,
+  "opensslExtFile": "code-signing.cnf",
+  "dynamicExt": false
+}

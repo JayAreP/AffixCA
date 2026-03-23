@@ -1,0 +1,1803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Affix/CA · PKI Setup Wizard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:        #0a0e1a;
+      --surface:   rgba(255,255,255,0.03);
+      --surface2:  rgba(255,255,255,0.06);
+      --border:    rgba(255,255,255,0.07);
+      --border2:   rgba(255,255,255,0.13);
+      --cyan:      #f97316;
+      --violet:    #ea580c;
+      --green:     #22c55e;
+      --amber:     #f59e0b;
+      --red:       #f43f5e;
+      --text:      #e2e8f0;
+      --text-mid:  #94a3b8;
+      --text-muted:#4d6080;
+      --radius:    12px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      font-family: 'Inter', sans-serif;
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 40px 16px 60px;
+      overflow-x: hidden;
+    }
+
+    /* -- Background canvas ------------------------------------------------- */
+    #bg-canvas {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    }
+
+    /* -- Outer wrapper ----------------------------------------------------- */
+    .wrap {
+      position: relative; z-index: 1;
+      width: 100%; max-width: 620px;
+      display: flex; flex-direction: column; gap: 24px;
+    }
+
+    /* -- Brand ------------------------------------------------------------- */
+    .brand {
+      display: flex; align-items: center; gap: 14px;
+      justify-content: center; padding-bottom: 4px;
+    }
+    .brand-shield { width: 38px; height: 38px; flex-shrink: 0; }
+    .brand-text { display: flex; flex-direction: column; }
+    .brand-title { font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+    .brand-sub {
+      font-size: 11px; font-weight: 500; letter-spacing: .12em;
+      text-transform: uppercase; color: var(--text-muted);
+    }
+
+    /* -- Step indicator ---------------------------------------------------- */
+    .steps {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      padding: 0 4px;
+    }
+    .step {
+      display: flex; flex-direction: column; align-items: center; gap: 7px;
+      flex: 0 0 auto; width: 60px;
+    }
+    .step-ring {
+      width: 34px; height: 34px; border-radius: 50%;
+      border: 2px solid var(--border2);
+      background: var(--surface);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 600; color: var(--text-muted);
+      transition: all .3s ease; flex-shrink: 0; position: relative; z-index: 1;
+    }
+    .step.active .step-ring {
+      border-color: var(--cyan); color: var(--cyan);
+      background: rgba(249,115,22,.07);
+      box-shadow: 0 0 14px rgba(249,115,22,.35);
+    }
+    .step.done .step-ring {
+      border-color: var(--cyan); background: var(--cyan);
+      color: #0a0e1a; font-size: 0;
+    }
+    .step.done .step-ring::after {
+      content: '';
+      display: block; width: 14px; height: 8px;
+      border-left: 2.5px solid #0a0e1a;
+      border-bottom: 2.5px solid #0a0e1a;
+      transform: rotate(-45deg) translateY(-2px);
+    }
+    .step.skip .step-ring {
+      border-color: var(--border); color: var(--text-muted);
+      opacity: .35;
+    }
+    .step.skip .step-lbl { opacity: .35; }
+    .step-lbl {
+      font-size: 9px; font-weight: 500; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--text-muted); text-align: center;
+      white-space: nowrap;
+    }
+    .step.active .step-lbl { color: var(--text-mid); }
+    .step-line {
+      flex: 1; height: 2px; background: var(--border2); align-self: flex-start;
+      margin-top: 16px; border-radius: 2px; transition: background .4s;
+    }
+    .step-line.done { background: var(--cyan); }
+
+    /* -- Card -------------------------------------------------------------- */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px; overflow: hidden;
+    }
+    .card-head {
+      padding: 22px 26px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .card-title { font-size: 16px; font-weight: 600; }
+    .card-desc { font-size: 13px; color: var(--text-mid); margin-top: 5px; line-height: 1.5; }
+    .card-body { padding: 26px; }
+    .card-foot {
+      padding: 16px 26px;
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .foot-meta { font-size: 12px; color: var(--text-muted); }
+
+    /* -- Panel visibility -------------------------------------------------- */
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* -- Form -------------------------------------------------------------- */
+    .fg { display: flex; flex-direction: column; gap: 18px; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .fgroup { display: flex; flex-direction: column; gap: 6px; }
+    .fgroup label {
+      font-size: 12px; font-weight: 500; color: var(--text-mid);
+      letter-spacing: .02em;
+    }
+    .fgroup .hint { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+    .opt-tag {
+      font-size: 10px; font-weight: 500; color: var(--text-muted);
+      border: 1px solid var(--border2); border-radius: 4px;
+      padding: 1px 5px; margin-left: 4px; vertical-align: middle;
+    }
+
+    input[type=text], input[type=url], input[type=number], input[type=password], select {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border2);
+      border-radius: 8px; padding: 9px 12px;
+      font-size: 13px; font-family: inherit; color: var(--text);
+      outline: none; width: 100%;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    input:focus, select:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 3px rgba(249,115,22,.1);
+    }
+    input::placeholder { color: var(--text-muted); }
+    input.err { border-color: var(--red); }
+
+    /* -- DN preview -------------------------------------------------------- */
+    .dn-box {
+      margin-top: 6px;
+      background: rgba(0,0,0,.3);
+      border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px;
+    }
+    .dn-label {
+      font-size: 10px; font-weight: 600; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px;
+    }
+    .dn-val {
+      font-family: 'JetBrains Mono', monospace; font-size: 12px;
+      color: var(--cyan); word-break: break-all; line-height: 1.6;
+    }
+
+    /* -- Mode / role selection cards --------------------------------------- */
+    .mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .mode-card {
+      background: var(--surface);
+      border: 2px solid var(--border);
+      border-radius: var(--radius); padding: 22px 18px;
+      cursor: pointer; transition: all .2s;
+      display: flex; flex-direction: column; gap: 8px;
+      user-select: none; text-align: center;
+    }
+    .mode-card:hover { border-color: var(--border2); background: var(--surface2); }
+    .mode-card.sel {
+      border-color: var(--cyan); background: rgba(249,115,22,.05);
+      box-shadow: 0 0 20px rgba(249,115,22,.13);
+    }
+    .mode-icon {
+      font-size: 28px; margin-bottom: 4px;
+      filter: grayscale(0.2);
+    }
+    .mode-card.sel .mode-icon { filter: none; }
+    .mode-name { font-size: 14px; font-weight: 600; }
+    .mode-desc { font-size: 11px; color: var(--text-mid); line-height: 1.5; }
+
+    /* -- Role checkboxes / radios ----------------------------------------- */
+    .role-list { display: flex; flex-direction: column; gap: 12px; }
+    .role-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px;
+      cursor: pointer; transition: all .2s; user-select: none;
+    }
+    .role-item:hover { border-color: var(--border2); background: var(--surface2); }
+    .role-item.sel {
+      border-color: var(--cyan); background: rgba(249,115,22,.04);
+    }
+    .role-item input[type=checkbox],
+    .role-item input[type=radio] {
+      width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0;
+      accent-color: var(--cyan);
+    }
+    .role-info { display: flex; flex-direction: column; gap: 3px; }
+    .role-name { font-size: 13px; font-weight: 600; }
+    .role-desc { font-size: 11px; color: var(--text-mid); line-height: 1.45; }
+
+    /* -- Key algorithm cards ----------------------------------------------- */
+    .key-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .key-card {
+      background: var(--surface);
+      border: 2px solid var(--border);
+      border-radius: var(--radius); padding: 16px 14px;
+      cursor: pointer; transition: all .2s;
+      display: flex; flex-direction: column; gap: 5px;
+      user-select: none;
+    }
+    .key-card:hover { border-color: var(--border2); background: var(--surface2); }
+    .key-card.sel {
+      border-color: var(--cyan); background: rgba(249,115,22,.05);
+      box-shadow: 0 0 20px rgba(249,115,22,.13);
+    }
+    .key-name { font-size: 13px; font-weight: 600; }
+    .key-desc { font-size: 11px; color: var(--text-mid); line-height: 1.45; }
+    .key-badge {
+      display: inline-block; margin-top: 4px;
+      font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+    }
+    .badge-rec  { background: rgba(249,115,22,.14); color: var(--cyan); }
+    .badge-mod  { background: rgba(124,58,237,.18); color: #a78bfa; }
+    .badge-leg  { background: rgba(100,100,130,.18); color: var(--text-muted); }
+
+    /* -- Validity slider --------------------------------------------------- */
+    .slider-row { display: flex; align-items: center; gap: 14px; margin-top: 2px; }
+    .slider {
+      -webkit-appearance: none; flex: 1; height: 4px;
+      background: var(--border2); border-radius: 4px; outline: none;
+    }
+    .slider::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+      background: var(--cyan); cursor: pointer;
+      box-shadow: 0 0 10px rgba(249,115,22,.5);
+    }
+    .slider-val {
+      font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600;
+      color: var(--cyan); min-width: 72px; text-align: right;
+    }
+    .slider-ticks {
+      display: flex; justify-content: space-between;
+      font-size: 10px; color: var(--text-muted); margin-top: 5px;
+    }
+
+    /* -- Section heading --------------------------------------------------- */
+    .section-label {
+      font-size: 11px; font-weight: 600; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;
+    }
+
+    /* -- Template cards ---------------------------------------------------- */
+    .tpl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .tpl-card {
+      display: flex; align-items: flex-start; gap: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--border2);
+      border-radius: var(--radius); padding: 12px 14px;
+      cursor: pointer; transition: all .2s; user-select: none;
+    }
+    .tpl-card:hover { border-color: var(--border2); background: var(--surface2); }
+    .tpl-card.sel {
+      border-color: var(--cyan); border-left-color: var(--cyan);
+      background: rgba(249,115,22,.04);
+    }
+    .tpl-card.tpl-server  { border-left-color: var(--green); }
+    .tpl-card.tpl-client  { border-left-color: #ea580c; }
+    .tpl-card.tpl-code    { border-left-color: var(--violet); }
+    .tpl-card.tpl-email   { border-left-color: var(--amber); }
+    .tpl-card.tpl-device  { border-left-color: #6366f1; }
+    .tpl-card.tpl-wifi    { border-left-color: #f59e0b; }
+    .tpl-card.tpl-vpn     { border-left-color: #8b5cf6; }
+    .tpl-card.tpl-smart   { border-left-color: #ec4899; }
+    .tpl-card.sel.tpl-server  { border-left-color: var(--green); }
+    .tpl-card.sel.tpl-client  { border-left-color: #ea580c; }
+    .tpl-card.sel.tpl-code    { border-left-color: var(--violet); }
+    .tpl-card.sel.tpl-email   { border-left-color: var(--amber); }
+    .tpl-card.sel.tpl-device  { border-left-color: #6366f1; }
+    .tpl-card.sel.tpl-wifi    { border-left-color: #f59e0b; }
+    .tpl-card.sel.tpl-vpn     { border-left-color: #8b5cf6; }
+    .tpl-card.sel.tpl-smart   { border-left-color: #ec4899; }
+    .tpl-card input[type=checkbox] {
+      width: 14px; height: 14px; margin-top: 1px; flex-shrink: 0;
+      accent-color: var(--cyan);
+    }
+    .tpl-info { display: flex; flex-direction: column; gap: 2px; }
+    .tpl-name { font-size: 12px; font-weight: 600; }
+    .tpl-desc { font-size: 10px; color: var(--text-mid); line-height: 1.4; }
+    .tpl-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+
+    /* -- Buttons ----------------------------------------------------------- */
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 9px 20px; border-radius: 8px; border: none;
+      font-size: 13px; font-weight: 500; font-family: inherit;
+      cursor: pointer; transition: all .2s; text-decoration: none;
+      white-space: nowrap;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #f97316, #ea580c);
+      color: #fff; box-shadow: 0 2px 14px rgba(249,115,22,.2);
+    }
+    .btn-primary:hover { box-shadow: 0 4px 22px rgba(249,115,22,.38); transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+    .btn-ghost {
+      background: transparent; color: var(--text-mid);
+      border: 1px solid var(--border2);
+    }
+    .btn-ghost:hover { color: var(--text); border-color: rgba(255,255,255,.22); }
+    .btn-success {
+      background: linear-gradient(135deg, #f97316, #ea580c);
+      color: #fff; box-shadow: 0 2px 14px rgba(249,115,22,.25);
+      font-size: 14px; font-weight: 600; padding: 11px 28px;
+    }
+    .btn-success:hover { box-shadow: 0 4px 24px rgba(249,115,22,.45); transform: translateY(-1px); }
+    .btn-test {
+      background: rgba(249,115,22,.1); color: var(--cyan);
+      border: 1px solid rgba(249,115,22,.25);
+      padding: 7px 16px; font-size: 12px;
+    }
+    .btn-test:hover { background: rgba(249,115,22,.18); }
+    .btn-test:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* -- Review table ------------------------------------------------------ */
+    .review { display: flex; flex-direction: column; gap: 0; }
+    .rrow {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 9px 0; border-bottom: 1px solid var(--border);
+      gap: 16px;
+    }
+    .rrow:last-child { border-bottom: none; }
+    .rkey { font-size: 12px; color: var(--text-muted); flex-shrink: 0; min-width: 128px; }
+    .rval { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text); word-break: break-all; text-align: right; }
+
+    /* -- Error banner ------------------------------------------------------ */
+    .err-box {
+      background: rgba(244,63,94,.08); border: 1px solid rgba(244,63,94,.28);
+      border-radius: 8px; padding: 12px 14px;
+      font-size: 12px; color: #f87171; margin-bottom: 18px; display: none;
+    }
+    .err-box.show { display: block; }
+
+    /* -- Connection test result -------------------------------------------- */
+    .conn-result {
+      margin-top: 14px; padding: 14px 16px;
+      background: rgba(0,0,0,.3); border: 1px solid var(--border);
+      border-radius: 8px; display: none;
+    }
+    .conn-result.show { display: block; }
+    .conn-result.success { border-color: rgba(249,115,22,.3); }
+    .conn-result.failure { border-color: rgba(244,63,94,.3); }
+    .conn-result .conn-title {
+      font-size: 12px; font-weight: 600; margin-bottom: 6px;
+    }
+    .conn-result.success .conn-title { color: var(--cyan); }
+    .conn-result.failure .conn-title { color: var(--red); }
+    .conn-detail {
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      color: var(--text-mid); line-height: 1.7;
+    }
+
+    /* -- Progress screen --------------------------------------------------- */
+    .progress-wrap { padding: 32px 26px 26px; }
+    .spinner {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 3px solid rgba(249,115,22,.1); border-top-color: var(--cyan);
+      animation: spin .75s linear infinite; margin: 0 auto 20px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .prog-log {
+      background: rgba(0,0,0,.4); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px 16px;
+      font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.8;
+      color: var(--text-muted); height: 220px; overflow-y: auto;
+    }
+    .log-l { display: block; }
+    .log-l::before { content: '\203A '; color: var(--border2); }
+    .log-l.active { color: var(--cyan); }
+    .log-l.done   { color: var(--cyan); }
+    .prog-title { font-size: 16px; font-weight: 600; text-align: center; margin-bottom: 6px; }
+    .prog-sub   { font-size: 13px; color: var(--text-mid); text-align: center; margin-bottom: 24px; }
+
+    /* -- Success screen ---------------------------------------------------- */
+    .success-wrap { padding: 36px 26px 30px; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+    .check-ring {
+      width: 62px; height: 62px; border-radius: 50%;
+      background: rgba(249,115,22,.1); border: 2px solid var(--cyan);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 0 28px rgba(249,115,22,.22);
+    }
+    .check-ring svg { width: 30px; height: 30px; stroke: var(--cyan); }
+    .suc-title { font-size: 20px; font-weight: 700; text-align: center; }
+    .suc-sub   { font-size: 13px; color: var(--text-mid); text-align: center; max-width: 400px; line-height: 1.6; }
+    .cert-grid {
+      width: 100%; background: rgba(0,0,0,.35);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 14px 16px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .ci-row { display: flex; gap: 10px; font-size: 12px; }
+    .ci-key { font-family: 'JetBrains Mono', monospace; color: var(--text-muted); min-width: 102px; flex-shrink: 0; }
+    .ci-val { font-family: 'JetBrains Mono', monospace; color: var(--cyan); word-break: break-all; }
+
+    /* -- Standalone note --------------------------------------------------- */
+    .note-box {
+      background: rgba(249,115,22,.04); border: 1px solid rgba(249,115,22,.12);
+      border-radius: 8px; padding: 10px 14px; margin-top: 8px;
+      font-size: 11px; color: var(--text-mid); line-height: 1.5;
+    }
+
+    /* -- Help modal -------------------------------------------------------- */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,.65); backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal {
+      background: #111827; border: 1px solid var(--border2);
+      border-radius: 16px; max-width: 640px; width: 100%;
+      max-height: 80vh; overflow-y: auto;
+      box-shadow: 0 8px 40px rgba(0,0,0,.6);
+    }
+    .modal-head {
+      padding: 20px 24px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .modal-head h3 { font-size: 15px; font-weight: 600; }
+    .modal-close {
+      background: none; border: none; color: var(--text-muted);
+      cursor: pointer; font-size: 18px; padding: 4px 8px;
+      border-radius: 6px; transition: all .2s;
+    }
+    .modal-close:hover { color: var(--text); background: var(--surface2); }
+    .modal-body { padding: 20px 24px 24px; }
+    .modal-body h4 {
+      font-size: 13px; font-weight: 600; color: var(--cyan);
+      margin: 18px 0 8px; display: flex; align-items: center; gap: 8px;
+    }
+    .modal-body h4:first-child { margin-top: 0; }
+    .modal-body p {
+      font-size: 12px; color: var(--text-mid); line-height: 1.65; margin: 0 0 8px;
+    }
+    .modal-body code {
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      background: rgba(249,115,22,.08); color: var(--cyan);
+      padding: 1px 6px; border-radius: 4px;
+    }
+    .modal-body .url-example {
+      background: rgba(0,0,0,.35); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; margin: 8px 0 12px;
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      color: var(--green); line-height: 1.7;
+    }
+    .modal-body .role-tag {
+      display: inline-block; font-size: 10px; font-weight: 600;
+      padding: 2px 8px; border-radius: 999px; margin-left: 4px;
+    }
+    .role-tag.rt-issuing { background: rgba(34,197,94,.15); color: var(--green); }
+    .role-tag.rt-all { background: rgba(124,58,237,.18); color: #a78bfa; }
+
+    /* -- Help trigger button ----------------------------------------------- */
+    .btn-help {
+      background: rgba(249,115,22,.08); color: var(--cyan);
+      border: 1px solid rgba(249,115,22,.2); border-radius: 8px;
+      padding: 6px 14px; font-size: 12px; font-weight: 500;
+      font-family: inherit; cursor: pointer; transition: all .2s;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn-help:hover { background: rgba(249,115,22,.15); border-color: rgba(249,115,22,.35); }
+  </style>
+</head>
+<body>
+  <canvas id="bg-canvas"></canvas>
+
+  <div class="wrap">
+
+    <!-- Brand -->
+    <div class="brand">
+      <svg class="brand-shield" viewBox="0 0 32 32" fill="none">
+        <path d="M16 2L4 7v8c0 7.18 5.16 13.9 12 15.93C22.84 28.9 28 22.18 28 15V7L16 2z" fill="url(#sg)"/>
+        <path d="M11 16l3.5 3.5L21 12" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <defs>
+          <linearGradient id="sg" x1="4" y1="2" x2="28" y2="32" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#f97316"/>
+            <stop offset="100%" stop-color="#ea580c"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <div class="brand-text">
+        <span class="brand-title">Affix/CA</span>
+        <span class="brand-sub">PKI Setup Wizard</span>
+      </div>
+    </div>
+
+    <!-- Step indicator -->
+    <div class="steps" id="steps">
+      <div class="step active" data-s="1">
+        <div class="step-ring">1</div>
+        <div class="step-lbl">Mode</div>
+      </div>
+      <div class="step-line" id="line-1"></div>
+      <div class="step" data-s="2">
+        <div class="step-ring">2</div>
+        <div class="step-lbl">Roles</div>
+      </div>
+      <div class="step-line" id="line-2"></div>
+      <div class="step" data-s="3">
+        <div class="step-ring">3</div>
+        <div class="step-lbl">Parent</div>
+      </div>
+      <div class="step-line" id="line-3"></div>
+      <div class="step" data-s="4">
+        <div class="step-ring">4</div>
+        <div class="step-lbl">Identity</div>
+      </div>
+      <div class="step-line" id="line-4"></div>
+      <div class="step" data-s="5">
+        <div class="step-ring">5</div>
+        <div class="step-lbl">Key</div>
+      </div>
+      <div class="step-line" id="line-5"></div>
+      <div class="step" data-s="6">
+        <div class="step-ring">6</div>
+        <div class="step-lbl">URLs</div>
+      </div>
+      <div class="step-line" id="line-6"></div>
+      <div class="step" data-s="7">
+        <div class="step-ring">7</div>
+        <div class="step-lbl">Templates</div>
+      </div>
+      <div class="step-line" id="line-7"></div>
+      <div class="step" data-s="8">
+        <div class="step-ring">8</div>
+        <div class="step-lbl">Review</div>
+      </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- Step 1 -- Deployment Mode                                          -->
+    <!-- ================================================================== -->
+    <div class="card panel active" id="p1">
+      <div class="card-head">
+        <div class="card-title">Deployment Mode</div>
+        <div class="card-desc">
+          Choose how this Affix/CA instance will be deployed. Standalone mode creates a full three-tier PKI hierarchy in a single container. Distributed mode lets you assign a specific role in a multi-node PKI.
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="mode-grid" id="mode-grid">
+          <div class="mode-card sel" data-mode="standalone">
+            <div class="mode-icon">&#x1f3db;</div>
+            <div class="mode-name">Standalone</div>
+            <div class="mode-desc">Deploy a complete PKI hierarchy in a single container (Root + Intermediate + Issuing CA)</div>
+          </div>
+          <div class="mode-card" data-mode="distributed">
+            <div class="mode-icon">&#x1f310;</div>
+            <div class="mode-name">Distributed</div>
+            <div class="mode-desc">Deploy this instance as a specific role in a multi-node PKI</div>
+          </div>
+        </div>
+      </div>
+      <div class="card-foot">
+        <span class="foot-meta">Step 1 of 8</span>
+        <button class="btn btn-primary" id="btn-next-1">
+          Next
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- Step 2 -- Role Selection                                           -->
+    <!-- ================================================================== -->
+    <div class="card panel" id="p2">
+      <div class="card-head">
+        <div class="card-title">Role Selection</div>
+        <div class="card-desc" id="role-desc">
+          All three CA roles will be deployed on this instance.
+        </div>
+      </div>
+      <div class="card-body">
+        <!-- Standalone: checkboxes (all pre-checked, disabled) -->
+        <div id="roles-standalone" class="role-list">
+          <label class="role-item sel">
+            <input type="checkbox" checked disabled />
+            <div class="role-info">
+              <div class="role-name">Root CA</div>
+              <div class="role-desc">The trust anchor of your PKI. Issues certificates only to subordinate CAs.</div>
+            </div>
+          </label>
+          <label class="role-item sel">
+            <input type="checkbox" checked disabled />
+            <div class="role-info">
+              <div class="role-name">Intermediate CA</div>
+              <div class="role-desc">Policy CA that bridges the Root and Issuing CA. Adds a layer of security.</div>
+            </div>
+          </label>
+          <label class="role-item sel">
+            <input type="checkbox" checked disabled />
+            <div class="role-info">
+              <div class="role-name">Issuing CA</div>
+              <div class="role-desc">Issues end-entity certificates (TLS, S/MIME, code signing, etc.) to users and servers.</div>
+            </div>
+          </label>
+          <div class="note-box">All roles will run on this instance.</div>
+        </div>
+        <!-- Distributed: radio buttons -->
+        <div id="roles-distributed" class="role-list" style="display:none">
+          <label class="role-item sel" data-role="root">
+            <input type="radio" name="dist-role" value="root" checked />
+            <div class="role-info">
+              <div class="role-name">Root CA</div>
+              <div class="role-desc">The trust anchor of your PKI. Typically kept offline after signing subordinate CAs.</div>
+            </div>
+          </label>
+          <label class="role-item" data-role="intermediate">
+            <input type="radio" name="dist-role" value="intermediate" />
+            <div class="role-info">
+              <div class="role-name">Intermediate CA</div>
+              <div class="role-desc">Policy CA that bridges the Root and Issuing CA. Adds an isolation layer.</div>
+            </div>
+          </label>
+          <label class="role-item" data-role="issuing">
+            <input type="radio" name="dist-role" value="issuing" />
+            <div class="role-info">
+              <div class="role-name">Issuing CA</div>
+              <div class="role-desc">Issues end-entity certificates to users, servers, and devices.</div>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div class="card-foot">
+        <button class="btn btn-ghost" id="btn-back-2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          Back
+        </button>
+        <button class="btn btn-primary" id="btn-next-2">
+          Next
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- Step 3 -- Parent Connection                                        -->
+    <!-- ================================================================== -->
+    <div class="card panel" id="p3">
+      <div class="card-head">
+        <div class="card-title">Parent CA Connection</div>
+        <div class="card-desc">
+          This node requires a parent CA to sign its certificate. Provide the URL of the parent CA instance so we can establish the trust chain.
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="fg">
+          <div class="fgroup">
+            <label>Parent CA URL *</label>
+            <input id="f-parent-url" type="url" placeholder="https://root-ca.example.com:8080" />
+            <span class="hint">The base URL of the parent Affix/CA instance that will sign this CA's certificate</span>
+          </div>
+          <button class="btn btn-test" id="btn-test-conn" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+            Test Connection
+          </button>
+          <div class="conn-result" id="conn-result">
+            <div class="conn-title" id="conn-title"></div>
+            <div class="conn-detail" id="conn-detail"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card-foot">
+        <button class="btn btn-ghost" id="btn-back-3">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          Back
+        </button>
+        <button class="btn btn-primary" id="btn-next-3">
+          Next
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- Step 4 -- Organization Identity                                    -->
+    <!-- ================================================================== -->
+    <div class="card panel" id="p4">
+      <div class="card-head">
+        <div class="card-title">Organization Identity</div>
+        <div class="card-desc">
+          These details are embedded in the CA certificate and propagated to every certificate this CA signs. Choose carefully -- they cannot be changed without reissuing the CA.
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="fg">
+          <div class="fgroup">
+            <label>Organization Name *</label>
+            <input id="f-org" type="text" placeholder="Acme Corp" autocomplete="organization" />
+          </div>
+          <div class="fgroup">
+            <label>CA Common Name (CN) *</label>
+            <input id="f-cn" type="text" placeholder="Acme Corp Root CA" />
+            <span class="hint">The display name shown in certificate viewers for this CA</span>
+          </div>
+          <div class="row2">
+            <div class="fgroup">
+              <label>Country (2-letter ISO) *</label>
+              <input id="f-country" type="text" placeholder="US" maxlength="2"
+                     style="text-transform:uppercase; letter-spacing:.1em" autocomplete="country" />
+            </div>
+            <div class="fgroup">
+              <label>State / Province <span class="opt-tag">optional</span></label>
+              <input id="f-state" type="text" placeholder="California" autocomplete="address-level1" />
+            </div>
+          </div>
+          <div class="fgroup">
+            <label>Locality / City <span class="opt-tag">optional</span></label>
+            <input id="f-locality" type="text" placeholder="San Francisco" autocomplete="address-level2" />
+          </div>
+
+          <!-- Live DN preview -->
+          <div class="dn-box">
+            <div class="dn-label">Distinguished Name Preview</div>
+            <div class="dn-val" id="dn-val">/C=US/CN=Root CA</div>
+          </div>
+        </div>
+      </div>
+      <div class="card-foot">
+        <button class="btn btn-ghost" id="btn-back-4">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          Back
+        </button>
+        <button class="btn btn-primary" id="btn-next-4">
+          Next
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- Step 5 -- Key & Validity                                           -->
+    <!-- ================================================================== -->
+    <div class="card panel" id="p5">
+      <div class="card-head">
+        <div class="card-title">Key &amp; Certificate Configuration</div>
+        <div class="card-desc">
+          Select the cryptographic algorithm for the CA private key and set how long the CA certificate will be valid.
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="section-label">Key Algorithm</div>
+        <div class="key-grid" id="key-grid">
+          <div class="key-card sel" data-algo="rsa" data-param="4096">
+            <div class="key-name">RSA 4096</div>
+            <div class="key-desc">Maximum compatibility -- works with all PKI clients, smart cards, and HSMs</div>
+            <span class="key-badge badge-rec">Recommended</span>
+          </div>
+          <div class="key-card" data-algo="ecdsa" data-param="P-384">
+            <div class="key-name">ECDSA P-384</div>
+            <div class="key-desc">Modern elliptic curve -- smaller keys, faster verification, suite-B compliant</div>
+            <span class="key-badge badge-mod">Modern</span>
+          </div>
+          <div class="key-card" data-algo="rsa" data-param="2048">
+            <div class="key-name">RSA 2048</div>
+            <div class="key-desc">Broad compatibility with older devices, significantly faster key generation</div>
+            <span class="key-badge badge-leg">Legacy</span>
+          </div>
+          <div class="key-card" data-algo="ecdsa" data-param="P-256">
+            <div class="key-name">ECDSA P-256</div>
+            <div class="key-desc">Smallest footprint, ideal for IoT and resource-constrained environments</div>
+            <span class="key-badge badge-mod">Modern</span>
+          </div>
+        </div>
+
+        <div style="margin-top: 28px;">
+          <div class="section-label">Certificate Validity Period</div>
+          <div class="slider-row">
+            <input type="range" class="slider" id="validity-slider"
+                   min="3652" max="10957" value="10957" step="365" />
+            <div class="slider-val" id="validity-display">30 years</div>
+          </div>
+          <div class="slider-ticks" id="slider-ticks">
+            <span>10 yr</span>
+            <span>15 yr</span>
+            <span>20 yr</span>
+            <span>25 yr</span>
+            <span>30 yr</span>
+          </div>
+          <span class="hint" id="validity-hint" style="margin-top:8px;display:block">
+            Root CAs are typically valid for 20-30 years. The CA must be renewed before it expires.
+          </span>
+        </div>
+      </div>
+      <div class="card-foot">
+        <button class="btn btn-ghost" id="btn-back-5">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          Back
+        </button>
+        <button class="btn btn-primary" id="btn-next-5">
+          Next
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- Step 6 -- PKI Distribution URLs                                    -->
+    <!-- ================================================================== -->
+    <div class="card panel" id="p6">
+      <div class="card-head">
+        <div class="card-title" style="display:flex;align-items:center;gap:12px">
+          PKI Distribution URLs
+          <button class="btn-help" id="btn-url-help" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            What are these?
+          </button>
+        </div>
+        <div class="card-desc">
+          Define the public URLs where clients can download CA certificates, CRLs, and check certificate status. These URLs are embedded into every certificate this CA signs and cannot be easily changed later.
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="fg">
+          <div class="fgroup">
+            <label>CRL Distribution Point (CDP) <span class="opt-tag">recommended</span></label>
+            <input id="f-cdp-url" type="url" placeholder="http://crl.example.com/ca.crl" />
+            <span class="hint">URL where the Certificate Revocation List can be downloaded. Clients check this to verify certificates haven't been revoked.</span>
+          </div>
+          <div class="fgroup">
+            <label>Authority Information Access (AIA) <span class="opt-tag">recommended</span></label>
+            <input id="f-aia-url" type="url" placeholder="http://certs.example.com/ca.crt" />
+            <span class="hint">URL where the issuing CA's certificate can be downloaded. Helps clients build the full trust chain.</span>
+          </div>
+          <div class="fgroup">
+            <label>OCSP Responder URL <span class="opt-tag">recommended</span></label>
+            <input id="f-ocsp-url" type="url" placeholder="http://ocsp.example.com" />
+            <span class="hint">URL of the Online Certificate Status Protocol responder for real-time revocation checking.</span>
+          </div>
+          <div class="note-box">
+            These URLs use <strong>HTTP</strong> (not HTTPS) by convention because the responses themselves are cryptographically signed. Leave blank to skip -- you can configure them later in Settings, but certificates already issued will not be updated.
+          </div>
+        </div>
+      </div>
+      <div class="card-foot">
+        <button class="btn btn-ghost" id="btn-back-6">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          Back
+        </button>
+        <button class="btn btn-primary" id="btn-next-6">
+          Next
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- Step 7 -- Certificate Templates                                    -->
+    <!-- ================================================================== -->
+    <div class="card panel" id="p7">
+      <div class="card-head">
+        <div class="card-title">Certificate Templates</div>
+        <div class="card-desc">
+          Select the certificate templates this Issuing CA will be authorized to issue. You can add or remove templates later from the dashboard.
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="tpl-grid" id="tpl-grid">
+          <label class="tpl-card tpl-server sel" data-tpl="tls-server">
+            <input type="checkbox" checked />
+            <div class="tpl-info">
+              <div class="tpl-name">TLS Server</div>
+              <div class="tpl-desc">HTTPS and TLS server authentication</div>
+            </div>
+          </label>
+          <label class="tpl-card tpl-client sel" data-tpl="tls-client">
+            <input type="checkbox" checked />
+            <div class="tpl-info">
+              <div class="tpl-name">TLS Client</div>
+              <div class="tpl-desc">Mutual TLS client authentication</div>
+            </div>
+          </label>
+          <label class="tpl-card tpl-code" data-tpl="code-signing">
+            <input type="checkbox" />
+            <div class="tpl-info">
+              <div class="tpl-name">Code Signing</div>
+              <div class="tpl-desc">Software and driver signing</div>
+            </div>
+          </label>
+          <label class="tpl-card tpl-email" data-tpl="smime">
+            <input type="checkbox" />
+            <div class="tpl-info">
+              <div class="tpl-name">S/MIME Email</div>
+              <div class="tpl-desc">Email encryption and signing</div>
+            </div>
+          </label>
+          <label class="tpl-card tpl-device" data-tpl="device-auth">
+            <input type="checkbox" />
+            <div class="tpl-info">
+              <div class="tpl-name">Device Authentication</div>
+              <div class="tpl-desc">IoT and managed device identity</div>
+            </div>
+          </label>
+          <label class="tpl-card tpl-wifi" data-tpl="wifi-eap">
+            <input type="checkbox" />
+            <div class="tpl-info">
+              <div class="tpl-name">WiFi / EAP-TLS</div>
+              <div class="tpl-desc">802.1X wireless authentication</div>
+            </div>
+          </label>
+          <label class="tpl-card tpl-vpn" data-tpl="vpn-client">
+            <input type="checkbox" />
+            <div class="tpl-info">
+              <div class="tpl-name">VPN Client</div>
+              <div class="tpl-desc">VPN client certificate authentication</div>
+            </div>
+          </label>
+          <label class="tpl-card tpl-vpn" data-tpl="vpn-server">
+            <input type="checkbox" />
+            <div class="tpl-info">
+              <div class="tpl-name">VPN Server</div>
+              <div class="tpl-desc">VPN gateway server identity</div>
+            </div>
+          </label>
+          <label class="tpl-card tpl-smart" data-tpl="smart-card">
+            <input type="checkbox" />
+            <div class="tpl-info">
+              <div class="tpl-name">Smart Card Logon</div>
+              <div class="tpl-desc">Smart card-based authentication</div>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div class="card-foot">
+        <button class="btn btn-ghost" id="btn-back-7">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          Back
+        </button>
+        <button class="btn btn-primary" id="btn-next-7">
+          Review Configuration
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- Step 8 -- Review & Generate                                        -->
+    <!-- ================================================================== -->
+    <div class="card panel" id="p8">
+
+      <!-- 7a: Review screen -->
+      <div id="screen-review">
+        <div class="card-head">
+          <div class="card-title">Review &amp; Initialize</div>
+          <div class="card-desc">
+            Confirm every field before proceeding. The private key generated here is stored encrypted on the CA volume -- it cannot be recovered if lost.
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="err-box" id="err-box"></div>
+          <div class="review" id="review-rows"></div>
+
+          <div style="margin-top:24px; border-top:1px solid var(--border); padding-top:20px;">
+            <div class="section-label">Admin Account</div>
+            <div class="fg">
+              <div class="fgroup">
+                <label>Admin Password *</label>
+                <input id="f-admin-pass" type="password" placeholder="Choose a strong password" autocomplete="new-password" />
+                <span class="hint">This password is used to sign into the dashboard. The default username is <strong>admin</strong>.</span>
+              </div>
+              <div class="fgroup">
+                <label>Confirm Password *</label>
+                <input id="f-admin-pass2" type="password" placeholder="Re-enter password" autocomplete="new-password" />
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card-foot">
+          <button class="btn btn-ghost" id="btn-back-8">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+            Back
+          </button>
+          <button class="btn btn-primary" id="btn-init">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+            Initialize PKI
+          </button>
+        </div>
+      </div>
+
+      <!-- 7b: Progress screen -->
+      <div id="screen-progress" style="display:none">
+        <div class="progress-wrap">
+          <div class="spinner"></div>
+          <div class="prog-title">Initializing PKI...</div>
+          <div class="prog-sub" id="prog-sub">Submitting configuration to ceremony API...</div>
+          <div class="prog-log" id="prog-log"></div>
+        </div>
+      </div>
+
+      <!-- 7c: Success screen -->
+      <div id="screen-success" style="display:none">
+        <div class="success-wrap">
+          <div class="check-ring">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+          </div>
+          <div class="suc-title">PKI Initialized Successfully</div>
+          <div class="suc-sub" id="suc-sub">
+            Your certificate authority hierarchy is operational. Sign in with your admin credentials to access the dashboard.
+          </div>
+          <div class="cert-grid" id="cert-details"></div>
+          <a href="/login" class="btn btn-success" id="btn-dashboard">
+            Sign In &rarr;
+          </a>
+        </div>
+      </div>
+
+    </div><!-- /p8 -->
+  </div><!-- /wrap -->
+
+  <!-- ================================================================== -->
+  <!-- Help Modal -- PKI Distribution URLs                                -->
+  <!-- ================================================================== -->
+  <div class="modal-overlay" id="modal-url-help">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>PKI Distribution URLs Explained</h3>
+        <button class="modal-close" id="modal-url-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>When a CA signs a certificate, it embeds URLs that tell clients where to find revocation data and the CA's own certificate. These URLs must be publicly accessible to any machine that needs to validate your certificates.</p>
+
+        <h4>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          CRL Distribution Point (CDP)
+          <span class="role-tag rt-all">All CA Roles</span>
+        </h4>
+        <p>The CDP URL points to a file containing the Certificate Revocation List -- a signed list of all revoked certificate serial numbers. Clients download this file periodically to check whether a certificate has been revoked.</p>
+        <p><strong>Target:</strong> Every CA tier that revokes certificates needs its own CDP. In practice, the <strong>Issuing CA</strong> is the one revoking end-entity certificates most often, but Root and Intermediate CAs also publish CRLs for subordinate CA revocation.</p>
+        <div class="url-example">
+          Root CA:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; http://crl.example.com/root-ca.crl<br>
+          Intermediate CA: http://crl.example.com/intermediate-ca.crl<br>
+          Issuing CA:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; http://crl.example.com/issuing-ca.crl
+        </div>
+        <p>Use a dedicated hostname like <code>crl.example.com</code> that points to a web server or CDN serving the CRL files. Avoid port-based URLs -- they may be blocked by corporate firewalls.</p>
+
+        <h4>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Authority Information Access (AIA)
+          <span class="role-tag rt-all">All CA Roles</span>
+        </h4>
+        <p>The AIA URL tells clients where to download the issuing CA's certificate. This allows clients to build the full certificate chain even if they only have the end-entity certificate. Without AIA, clients that don't have the intermediate CA certificate pre-installed will fail to validate the chain.</p>
+        <p><strong>Target:</strong> Each CA tier (except Root) should have an AIA URL pointing to where <em>its own</em> certificate can be downloaded. The Root CA certificate is typically pre-distributed via trust stores, not AIA.</p>
+        <div class="url-example">
+          Intermediate CA: http://certs.example.com/intermediate-ca.crt<br>
+          Issuing CA:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; http://certs.example.com/issuing-ca.crt
+        </div>
+        <p>Use a dedicated hostname like <code>certs.example.com</code> pointing to a web server or CDN that hosts the CA certificate files.</p>
+
+        <h4>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          OCSP Responder
+          <span class="role-tag rt-issuing">Issuing CA</span>
+        </h4>
+        <p>OCSP (Online Certificate Status Protocol) provides real-time certificate revocation checking. Instead of downloading a full CRL, clients send a single-certificate query and get an immediate signed response. OCSP is faster and more privacy-friendly than CRLs.</p>
+        <p><strong>Target:</strong> The OCSP responder should run on (or in front of) your <strong>Issuing CA</strong> instances, since they sign end-entity certificates and maintain revocation state.</p>
+        <div class="url-example">
+          OCSP Responder:&nbsp; http://ocsp.example.com
+        </div>
+
+        <h4>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          DNS &amp; Load Balancer Configuration
+        </h4>
+        <p>Create DNS records for each service hostname:</p>
+        <div class="url-example">
+          crl.example.com&nbsp;&nbsp;&nbsp; &rarr; Web server / CDN serving CRL files<br>
+          certs.example.com &rarr; Web server / CDN serving CA certificates<br>
+          ocsp.example.com&nbsp;&nbsp; &rarr; OCSP responder (or load balancer)
+        </div>
+        <p><strong>Multiple Issuing CAs?</strong> If you have more than one Issuing CA, point <code>ocsp.example.com</code> to a load balancer in front of all your Issuing CA OCSP responders. Each Issuing CA can respond to queries for certificates it signed.</p>
+        <p><strong>Why HTTP, not HTTPS?</strong> CRL and OCSP responses are cryptographically signed by the CA, so transport-layer encryption is unnecessary. Using HTTP avoids a chicken-and-egg problem where validating the HTTPS certificate would itself require OCSP/CRL access.</p>
+        <p><strong>Standalone mode:</strong> In standalone mode, all three CA tiers run on this instance. You can use a single hostname (e.g., <code>pki.example.com</code>) for all URLs, since this server handles everything. The built-in endpoints <code>/api/crl/*</code> and <code>/api/chain</code> serve CRLs and certificates directly.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  'use strict';
+
+  // == Animated Background ====================================================
+  (function() {
+    const cv = document.getElementById('bg-canvas');
+    const cx = cv.getContext('2d');
+    let W, H, dots;
+    function resize() {
+      W = cv.width  = window.innerWidth;
+      H = cv.height = window.innerHeight;
+      dots = Array.from({ length: 55 }, () => ({
+        x: Math.random()*W, y: Math.random()*H,
+        r: Math.random()*1.2+.3,
+        dx: (Math.random()-.5)*.22, dy: (Math.random()-.5)*.22,
+      }));
+    }
+    function draw() {
+      cx.clearRect(0,0,W,H);
+      cx.lineWidth = 1;
+      const G = 60;
+      cx.strokeStyle = 'rgba(249,115,22,0.035)';
+      for (let x=0;x<=W;x+=G){cx.beginPath();cx.moveTo(x,0);cx.lineTo(x,H);cx.stroke();}
+      for (let y=0;y<=H;y+=G){cx.beginPath();cx.moveTo(0,y);cx.lineTo(W,y);cx.stroke();}
+      for (const d of dots) {
+        d.x+=d.dx; d.y+=d.dy;
+        if(d.x<0)d.x=W; if(d.x>W)d.x=0; if(d.y<0)d.y=H; if(d.y>H)d.y=0;
+        cx.beginPath(); cx.arc(d.x,d.y,d.r,0,Math.PI*2);
+        cx.fillStyle='rgba(249,115,22,.42)'; cx.fill();
+      }
+      for (let i=0;i<dots.length;i++) {
+        for (let j=i+1;j<dots.length;j++) {
+          const dx=dots[i].x-dots[j].x, dy=dots[i].y-dots[j].y;
+          const d2=dx*dx+dy*dy;
+          if (d2<14400) {
+            cx.beginPath(); cx.moveTo(dots[i].x,dots[i].y); cx.lineTo(dots[j].x,dots[j].y);
+            cx.strokeStyle=`rgba(249,115,22,${.05*(1-Math.sqrt(d2)/120)})`; cx.stroke();
+          }
+        }
+      }
+      requestAnimationFrame(draw);
+    }
+    resize(); window.addEventListener('resize',resize); draw();
+  })();
+
+  // == State ==================================================================
+  let currentStep = 1;
+  const TOTAL_STEPS = 8;
+  let deployMode = 'standalone';     // 'standalone' | 'distributed'
+  let distRole   = 'root';           // 'root' | 'intermediate' | 'issuing'
+  let algo       = 'rsa';
+  let param      = '4096';
+  let valDays    = 10957;            // 30 years default
+
+  // == Helpers ================================================================
+  function v(id) { return document.getElementById(id)?.value ?? ''; }
+  function esc(s) {
+    return String(s ?? '')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Determine the effective primary role for slider/validity logic
+  function primaryRole() {
+    if (deployMode === 'standalone') return 'root';
+    return distRole;
+  }
+
+  // Whether issuing role is active
+  function hasIssuingRole() {
+    return deployMode === 'standalone' || distRole === 'issuing';
+  }
+
+  // Whether parent connection step is needed
+  function needsParent() {
+    return deployMode === 'distributed' && distRole !== 'root';
+  }
+
+  // Whether templates step is needed
+  function needsTemplates() {
+    return hasIssuingRole();
+  }
+
+  // == Skippable steps ========================================================
+  function getVisibleSteps() {
+    // Steps: 1=Mode, 2=Roles, 3=Parent, 4=Identity, 5=Key, 6=URLs, 7=Templates, 8=Review
+    const visible = [1, 2];
+    if (needsParent()) visible.push(3);
+    visible.push(4, 5, 6);
+    if (needsTemplates()) visible.push(7);
+    visible.push(8);
+    return visible;
+  }
+
+  function nextVisibleStep(from) {
+    const vis = getVisibleSteps();
+    for (const s of vis) { if (s > from) return s; }
+    return from;
+  }
+
+  function prevVisibleStep(from) {
+    const vis = getVisibleSteps();
+    for (let i = vis.length - 1; i >= 0; i--) {
+      if (vis[i] < from) return vis[i];
+    }
+    return from;
+  }
+
+  // == Step indicator update ==================================================
+  function updateStepIndicator() {
+    const vis = getVisibleSteps();
+    document.querySelectorAll('.step').forEach(el => {
+      const s = +el.dataset.s;
+      el.classList.remove('active','done','skip');
+      if (!vis.includes(s)) {
+        el.classList.add('skip');
+      } else if (s < currentStep) {
+        el.classList.add('done');
+      } else if (s === currentStep) {
+        el.classList.add('active');
+      }
+    });
+    for (let i = 1; i < TOTAL_STEPS; i++) {
+      const l = document.getElementById(`line-${i}`);
+      if (l) l.classList.toggle('done', currentStep > i);
+    }
+  }
+
+  // == Step navigation ========================================================
+  function goStep(n) {
+    document.getElementById(`p${currentStep}`).classList.remove('active');
+    currentStep = n;
+    document.getElementById(`p${n}`).classList.add('active');
+    updateStepIndicator();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // == Mode cards =============================================================
+  document.querySelectorAll('#mode-grid .mode-card').forEach(c => {
+    c.addEventListener('click', function() {
+      document.querySelectorAll('#mode-grid .mode-card').forEach(k => k.classList.remove('sel'));
+      this.classList.add('sel');
+      deployMode = this.dataset.mode;
+    });
+  });
+
+  // == Role radios (distributed) ==============================================
+  document.querySelectorAll('#roles-distributed .role-item').forEach(item => {
+    const radio = item.querySelector('input[type=radio]');
+    item.addEventListener('click', function() {
+      document.querySelectorAll('#roles-distributed .role-item').forEach(r => r.classList.remove('sel'));
+      this.classList.add('sel');
+      radio.checked = true;
+      distRole = radio.value;
+    });
+  });
+
+  // == Template cards =========================================================
+  document.querySelectorAll('#tpl-grid .tpl-card').forEach(card => {
+    const cb = card.querySelector('input[type=checkbox]');
+    card.addEventListener('click', function(e) {
+      // Let the checkbox handle itself via label
+      setTimeout(() => {
+        card.classList.toggle('sel', cb.checked);
+      }, 0);
+    });
+  });
+
+  // == DN preview =============================================================
+  function updateDN() {
+    const c  = (v('f-country')||'').trim().toUpperCase();
+    const st = (v('f-state')  ||'').trim();
+    const l  = (v('f-locality')||'').trim();
+    const o  = (v('f-org')    ||'').trim();
+    const cn = (v('f-cn')     ||'').trim();
+    let dn = '';
+    if (c)  dn += `/C=${c}`;
+    if (st) dn += `/ST=${st}`;
+    if (l)  dn += `/L=${l}`;
+    if (o)  dn += `/O=${o}`;
+    if (cn) dn += `/CN=${cn}`;
+    document.getElementById('dn-val').textContent = dn || '\u2014';
+  }
+  ['f-org','f-cn','f-country','f-state','f-locality'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateDN);
+  });
+  // Auto-suggest CN from org
+  document.getElementById('f-org').addEventListener('blur', function() {
+    const cnEl = document.getElementById('f-cn');
+    if (!cnEl.value.trim() && this.value.trim()) {
+      const role = primaryRole();
+      const suffix = role === 'root' ? 'Root CA' : role === 'intermediate' ? 'Intermediate CA' : 'Issuing CA';
+      cnEl.value = this.value.trim() + ' ' + suffix;
+      updateDN();
+    }
+  });
+  updateDN();
+
+  // == Key cards ==============================================================
+  document.querySelectorAll('.key-card').forEach(c => {
+    c.addEventListener('click', function() {
+      document.querySelectorAll('.key-card').forEach(k => k.classList.remove('sel'));
+      this.classList.add('sel');
+      algo  = this.dataset.algo;
+      param = this.dataset.param;
+    });
+  });
+
+  // == Validity slider ========================================================
+  const validityPresets = {
+    root:         { min: 3652, max: 10957, def: 10957, hint: 'Root CAs are typically valid for 20-30 years.' },
+    intermediate: { min: 1826, max: 5478,  def: 5478,  hint: 'Intermediate CAs are typically valid for 5-15 years.' },
+    issuing:      { min: 1095, max: 3652,  def: 3652,  hint: 'Issuing CAs are typically valid for 3-10 years.' },
+  };
+
+  function updateSliderRange() {
+    const role = primaryRole();
+    const preset = validityPresets[role] || validityPresets.root;
+    const slider = document.getElementById('validity-slider');
+    slider.min   = preset.min;
+    slider.max   = preset.max;
+    slider.value = preset.def;
+    valDays = preset.def;
+    updateSliderDisplay();
+    document.getElementById('validity-hint').textContent = preset.hint + ' The CA must be renewed before it expires.';
+
+    // Update ticks
+    const minYr = Math.round(preset.min / 365.25);
+    const maxYr = Math.round(preset.max / 365.25);
+    const mid   = Math.round((minYr + maxYr) / 2);
+    const q1    = Math.round((minYr + mid) / 2);
+    const q3    = Math.round((mid + maxYr) / 2);
+    document.getElementById('slider-ticks').innerHTML =
+      `<span>${minYr} yr</span><span>${q1} yr</span><span>${mid} yr</span><span>${q3} yr</span><span>${maxYr} yr</span>`;
+  }
+
+  function updateSliderDisplay() {
+    valDays = +document.getElementById('validity-slider').value;
+    const yr = +(valDays / 365.25).toFixed(1);
+    document.getElementById('validity-display').textContent =
+      Number.isInteger(yr) ? `${yr} years` : `${valDays.toLocaleString()} days`;
+  }
+
+  document.getElementById('validity-slider').addEventListener('input', updateSliderDisplay);
+
+  // == Step 1 -> 2 ============================================================
+  document.getElementById('btn-next-1').addEventListener('click', () => {
+    // Update role UI based on mode
+    if (deployMode === 'standalone') {
+      document.getElementById('roles-standalone').style.display = 'block';
+      document.getElementById('roles-distributed').style.display = 'none';
+      document.getElementById('role-desc').textContent = 'All three CA roles will be deployed on this instance.';
+    } else {
+      document.getElementById('roles-standalone').style.display = 'none';
+      document.getElementById('roles-distributed').style.display = 'block';
+      document.getElementById('role-desc').textContent = 'Select the role this node will fulfill in your distributed PKI.';
+    }
+    updateStepIndicator();
+    goStep(2);
+  });
+
+  // == Step 2 -> 3 or 4 =======================================================
+  document.getElementById('btn-back-2').addEventListener('click', () => goStep(1));
+  document.getElementById('btn-next-2').addEventListener('click', () => {
+    updateSliderRange();
+    goStep(nextVisibleStep(2));
+  });
+
+  // == Step 3 (Parent Connection) =============================================
+  document.getElementById('btn-back-3').addEventListener('click', () => goStep(prevVisibleStep(3)));
+  document.getElementById('btn-next-3').addEventListener('click', () => {
+    const url = v('f-parent-url').trim();
+    if (!url) {
+      document.getElementById('f-parent-url').classList.add('err');
+      return;
+    }
+    goStep(nextVisibleStep(3));
+  });
+
+  // Test connection button
+  document.getElementById('btn-test-conn').addEventListener('click', async function() {
+    const url = v('f-parent-url').trim();
+    if (!url) {
+      document.getElementById('f-parent-url').classList.add('err');
+      return;
+    }
+    this.disabled = true;
+    this.textContent = 'Testing...';
+    const result = document.getElementById('conn-result');
+    result.classList.remove('show','success','failure');
+
+    try {
+      const res = await fetch('/api/setup/test-parent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentUrl: url }),
+      });
+      const data = await res.json();
+      result.classList.add('show');
+
+      if (res.ok && data.success) {
+        result.classList.add('success');
+        document.getElementById('conn-title').textContent = 'Connection Successful';
+        document.getElementById('conn-detail').innerHTML =
+          `CA Name: ${esc(data.name || '\u2014')}<br>` +
+          `Subject: ${esc(data.subject || '\u2014')}<br>` +
+          `Roles: ${esc((data.roles || []).join(', ') || '\u2014')}`;
+      } else {
+        result.classList.add('failure');
+        document.getElementById('conn-title').textContent = 'Connection Failed';
+        document.getElementById('conn-detail').textContent = data.error || 'Unable to reach parent CA';
+      }
+    } catch (err) {
+      result.classList.add('show','failure');
+      document.getElementById('conn-title').textContent = 'Connection Failed';
+      document.getElementById('conn-detail').textContent = err.message;
+    }
+    this.disabled = false;
+    this.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Test Connection';
+  });
+
+  // == Step 4 (Identity) ======================================================
+  document.getElementById('btn-back-4').addEventListener('click', () => goStep(prevVisibleStep(4)));
+  document.getElementById('btn-next-4').addEventListener('click', () => {
+    const org     = v('f-org').trim();
+    const cn      = v('f-cn').trim();
+    const country = v('f-country').trim();
+    let ok = true;
+    [['f-org', org], ['f-cn', cn], ['f-country', country]].forEach(([id, val]) => {
+      const el = document.getElementById(id);
+      if (!val) { el.classList.add('err'); ok = false; }
+    });
+    if (!ok) return;
+    goStep(nextVisibleStep(4));
+  });
+
+  // == Step 5 (Key & Validity) ================================================
+  document.getElementById('btn-back-5').addEventListener('click', () => goStep(prevVisibleStep(5)));
+  document.getElementById('btn-next-5').addEventListener('click', () => {
+    goStep(nextVisibleStep(5));
+  });
+
+  // == Step 6 (PKI Distribution URLs) ========================================
+  document.getElementById('btn-back-6').addEventListener('click', () => goStep(prevVisibleStep(6)));
+  document.getElementById('btn-next-6').addEventListener('click', () => {
+    const next = nextVisibleStep(6);
+    if (next === 8) buildReview();
+    goStep(next);
+  });
+
+  // Help modal
+  document.getElementById('btn-url-help').addEventListener('click', () => {
+    document.getElementById('modal-url-help').classList.add('show');
+  });
+  document.getElementById('modal-url-close').addEventListener('click', () => {
+    document.getElementById('modal-url-help').classList.remove('show');
+  });
+  document.getElementById('modal-url-help').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      document.getElementById('modal-url-help').classList.remove('show');
+    }
+  });
+
+  // == Step 7 (Templates) =====================================================
+  document.getElementById('btn-back-7').addEventListener('click', () => goStep(prevVisibleStep(7)));
+  document.getElementById('btn-next-7').addEventListener('click', () => {
+    buildReview();
+    goStep(8);
+  });
+
+  // == Step 8 (Review) ========================================================
+  document.getElementById('btn-back-8').addEventListener('click', () => goStep(prevVisibleStep(8)));
+
+  // Clear error state on input
+  document.querySelectorAll('input').forEach(el => {
+    el.addEventListener('input', () => el.classList.remove('err'));
+  });
+
+  // == Build review table =====================================================
+  function buildReview() {
+    const yrs = +(valDays / 365.25).toFixed(1);
+    const algoLabel = algo === 'rsa' ? `RSA ${param}-bit` : `ECDSA ${param}`;
+    const modeLabel = deployMode === 'standalone' ? 'Standalone' : 'Distributed';
+
+    let rolesLabel;
+    if (deployMode === 'standalone') {
+      rolesLabel = 'Root, Intermediate, Issuing';
+    } else {
+      rolesLabel = distRole === 'root' ? 'Root CA' :
+                   distRole === 'intermediate' ? 'Intermediate CA' : 'Issuing CA';
+    }
+
+    const rows = [
+      ['Mode',            modeLabel],
+      ['Roles',           rolesLabel],
+    ];
+
+    if (needsParent()) {
+      rows.push(['Parent CA URL', v('f-parent-url').trim()]);
+    }
+
+    rows.push(
+      ['Organization',   v('f-org').trim()],
+      ['Common Name',    v('f-cn').trim()],
+      ['Country',        v('f-country').trim().toUpperCase()],
+      ['State',          v('f-state').trim()   || '\u2014'],
+      ['Locality',       v('f-locality').trim() || '\u2014'],
+      ['Key Algorithm',  algoLabel],
+      ['Validity',       `${valDays.toLocaleString()} days (~${yrs} years)`],
+    );
+
+    // PKI Distribution URLs
+    const cdpUrl  = v('f-cdp-url').trim();
+    const aiaUrl  = v('f-aia-url').trim();
+    const ocspUrl = v('f-ocsp-url').trim();
+    if (cdpUrl)  rows.push(['CDP URL',  cdpUrl]);
+    if (aiaUrl)  rows.push(['AIA URL',  aiaUrl]);
+    if (ocspUrl) rows.push(['OCSP URL', ocspUrl]);
+
+    if (hasIssuingRole()) {
+      const templates = [];
+      document.querySelectorAll('#tpl-grid .tpl-card input:checked').forEach(cb => {
+        const card = cb.closest('.tpl-card');
+        templates.push(card.querySelector('.tpl-name').textContent);
+      });
+      rows.push(['Templates', templates.join(', ') || '(none)']);
+    }
+
+    document.getElementById('review-rows').innerHTML = rows.map(([k, val]) =>
+      `<div class="rrow"><span class="rkey">${k}</span><span class="rval">${esc(val)}</span></div>`
+    ).join('');
+  }
+
+  // == Initialize =============================================================
+  document.getElementById('btn-init').addEventListener('click', runInit);
+
+  async function runInit() {
+    // Validate admin password
+    const adminPass  = v('f-admin-pass').trim();
+    const adminPass2 = v('f-admin-pass2').trim();
+    const errBox = document.getElementById('err-box');
+
+    if (!adminPass) {
+      errBox.textContent = 'Admin password is required.';
+      errBox.classList.add('show');
+      document.getElementById('f-admin-pass').classList.add('err');
+      return;
+    }
+    if (adminPass.length < 6) {
+      errBox.textContent = 'Admin password must be at least 6 characters.';
+      errBox.classList.add('show');
+      document.getElementById('f-admin-pass').classList.add('err');
+      return;
+    }
+    if (adminPass !== adminPass2) {
+      errBox.textContent = 'Passwords do not match.';
+      errBox.classList.add('show');
+      document.getElementById('f-admin-pass2').classList.add('err');
+      return;
+    }
+
+    document.getElementById('screen-review').style.display   = 'none';
+    document.getElementById('screen-progress').style.display  = 'block';
+    errBox.classList.remove('show');
+
+    const log = document.getElementById('prog-log');
+    const sub = document.getElementById('prog-sub');
+    log.innerHTML = '';
+    const logLine = (text, cls='') => {
+      const el = document.createElement('span');
+      el.className = `log-l ${cls}`;
+      el.textContent = text;
+      log.appendChild(el);
+      log.scrollTop = log.scrollHeight;
+    };
+
+    logLine('Preparing ceremony configuration\u2026', 'active');
+
+    // Build payload
+    const templates = [];
+    if (hasIssuingRole()) {
+      document.querySelectorAll('#tpl-grid .tpl-card input:checked').forEach(cb => {
+        templates.push(cb.closest('.tpl-card').dataset.tpl);
+      });
+    }
+
+    const payload = {
+      mode: deployMode,
+      role: deployMode === 'standalone' ? 'standalone' : distRole,
+      parentUrl: needsParent() ? v('f-parent-url').trim() : undefined,
+      subject: {
+        o:  v('f-org').trim(),
+        cn: v('f-cn').trim(),
+        c:  v('f-country').trim().toUpperCase(),
+        st: v('f-state').trim()    || undefined,
+        l:  v('f-locality').trim() || undefined,
+      },
+      keyAlgo:   algo,
+      keyParam:  param,
+      days:      valDays,
+      templates: templates.length ? templates : undefined,
+      cdpUrl:  v('f-cdp-url').trim()  || undefined,
+      aiaUrl:  v('f-aia-url').trim()  || undefined,
+      ocspUrl: v('f-ocsp-url').trim() || undefined,
+      adminPassword: adminPass,
+    };
+
+    // Progress ticker messages
+    const roleLabel = deployMode === 'standalone' ? 'full PKI hierarchy' :
+                      distRole === 'root' ? 'Root CA' :
+                      distRole === 'intermediate' ? 'Intermediate CA' : 'Issuing CA';
+
+    const messages = [
+      'Initializing CA directory structure\u2026',
+      algo === 'rsa'
+        ? `Generating RSA ${param}-bit private key \u2014 this may take up to 30 seconds\u2026`
+        : `Generating ECDSA ${param} private key\u2026`,
+      'Encrypting private key with passphrase from Docker secret\u2026',
+      'Building X.509 certificate extensions\u2026',
+    ];
+
+    if (deployMode === 'standalone') {
+      messages.push(
+        'Generating self-signed Root CA certificate\u2026',
+        'Creating Intermediate CA key pair\u2026',
+        'Signing Intermediate CA certificate with Root CA\u2026',
+        'Creating Issuing CA key pair\u2026',
+        'Signing Issuing CA certificate with Intermediate CA\u2026',
+        'Writing initial Certificate Revocation Lists\u2026',
+        'Building full certificate chain\u2026',
+        'Installing certificate templates\u2026',
+      );
+    } else if (distRole === 'root') {
+      messages.push(
+        'Generating self-signed Root CA certificate\u2026',
+        'Writing initial Certificate Revocation List\u2026',
+        'Publishing root certificate to shared volume\u2026',
+      );
+    } else {
+      messages.push(
+        'Generating Certificate Signing Request (CSR)\u2026',
+        'Submitting CSR to parent CA for signing\u2026',
+        'Installing signed certificate\u2026',
+        'Writing initial Certificate Revocation List\u2026',
+      );
+      if (distRole === 'issuing') {
+        messages.push('Installing certificate templates\u2026');
+      }
+    }
+
+    let mi = 0;
+    sub.textContent = 'Key generation in progress \u2014 please wait\u2026';
+    document.querySelector('.prog-title').textContent = `Initializing ${roleLabel}\u2026`;
+    const ticker = setInterval(() => {
+      if (mi < messages.length) logLine(messages[mi++], 'active');
+    }, algo === 'rsa' && param === '4096' ? 3500 : 1800);
+
+    try {
+      const res = await fetch('/api/setup/init', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      clearInterval(ticker);
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(body.error || res.statusText);
+      }
+      const data = await res.json();
+
+      // Complete all log messages
+      while (mi < messages.length) logLine(messages[mi++], 'done');
+      logLine('');
+      logLine('PKI initialization complete.', 'done');
+      sub.textContent = 'All certificates generated and installed.';
+
+      await new Promise(r => setTimeout(r, 900));
+      showSuccess(data);
+
+    } catch (err) {
+      clearInterval(ticker);
+      document.getElementById('screen-progress').style.display = 'none';
+      document.getElementById('screen-review').style.display   = 'block';
+      const box = document.getElementById('err-box');
+      box.textContent = `Initialization failed: ${err.message}`;
+      box.classList.add('show');
+    }
+  }
+
+  function showSuccess(data) {
+    document.getElementById('screen-progress').style.display = 'none';
+    document.getElementById('screen-success').style.display  = 'block';
+
+    const modeLabel = deployMode === 'standalone' ? 'Standalone' : 'Distributed';
+    let rolesLabel;
+    if (deployMode === 'standalone') {
+      rolesLabel = 'Root, Intermediate, Issuing';
+    } else {
+      rolesLabel = distRole === 'root' ? 'Root CA' :
+                   distRole === 'intermediate' ? 'Intermediate CA' : 'Issuing CA';
+    }
+
+    if (deployMode === 'standalone') {
+      document.getElementById('suc-sub').textContent =
+        'Your full certificate authority hierarchy is operational. Sign in with your admin credentials to access the dashboard.';
+    }
+
+    let html = '';
+
+    // Show mode/roles
+    html += `<div class="ci-row"><span class="ci-key">mode</span><span class="ci-val">${esc(modeLabel)}</span></div>`;
+    html += `<div class="ci-row"><span class="ci-key">roles</span><span class="ci-val">${esc(rolesLabel)}</span></div>`;
+
+    if (data.serial) {
+      html += `<div class="ci-row"><span class="ci-key">serial</span><span class="ci-val">${esc(data.serial)}</span></div>`;
+    }
+    if (data.subject) {
+      html += `<div class="ci-row"><span class="ci-key">subject</span><span class="ci-val">${esc(data.subject)}</span></div>`;
+    }
+    if (data.fingerprint) {
+      html += `<div class="ci-row"><span class="ci-key">fingerprint</span><span class="ci-val">${esc(data.fingerprint)}</span></div>`;
+    }
+
+    // Chain details if present
+    if (data.chain && data.chain.length) {
+      html += '<div style="border-top:1px solid var(--border);margin:12px 0"></div>';
+      html += '<div style="font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Certificate Chain</div>';
+      for (const cert of data.chain) {
+        html += `<div class="ci-row"><span class="ci-key">${esc(cert.name)}</span><span class="ci-val">serial ${esc(cert.serial)}</span></div>`;
+      }
+    }
+
+    document.getElementById('cert-details').innerHTML = html;
+
+    // Auto-redirect countdown
+    let cd = 10;
+    const link = document.getElementById('btn-dashboard');
+    const tick = setInterval(() => {
+      cd--;
+      if (cd <= 0) { clearInterval(tick); window.location.href = '/login'; }
+      else link.textContent = `Sign In \u2192 (${cd}s)`;
+    }, 1000);
+  }
+  </script>
+</body>
+</html>

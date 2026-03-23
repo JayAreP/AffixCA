@@ -1,0 +1,18 @@
+# Profile: WiFi / EAP-TLS Client Certificate
+# EKU: clientAuth — used with RADIUS for 802.1x wireless authentication
+
+[ wifi_eaptls ]
+subjectKeyIdentifier    = hash
+authorityKeyIdentifier  = keyid:always
+basicConstraints        = critical,CA:false
+keyUsage                = critical,digitalSignature
+extendedKeyUsage        = clientAuth
+crlDistributionPoints   = @crl_info
+authorityInfoAccess     = @ocsp_issuer_info
+
+[ crl_info ]
+URI.0                   = ${ENV::CDP_URL}
+
+[ ocsp_issuer_info ]
+OCSP;URI.0              = ${ENV::OCSP_URL}
+caIssuers;URI.0         = ${ENV::AIA_URL}

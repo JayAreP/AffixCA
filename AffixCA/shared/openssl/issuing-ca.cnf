@@ -1,0 +1,72 @@
+# =============================================================================
+#  Issuing CA  ·  openssl.cnf
+#  Signs end-entity certificates. Profile extensions supplied via -extfile.
+# =============================================================================
+
+[ default ]
+ca                      = issuing-ca
+dir                     = /ca
+base_url                = http://crl.example.com
+aia_url                 = http://certs.example.com
+ocsp_url                = http://ocsp.example.com
+name_opt                = multiline,-esc_msb,utf8
+
+[ req ]
+default_bits            = 4096
+default_md              = sha384
+utf8                    = yes
+string_mask             = utf8only
+prompt                  = no
+distinguished_name      = ca_dn
+
+[ ca_dn ]
+countryName             = "US"
+organizationName        = "Example Corp"
+commonName              = "Example Corp Issuing CA"
+
+[ ca ]
+default_ca              = issuing_ca
+
+[ issuing_ca ]
+certificate             = $dir/certs/ca.crt
+private_key             = $dir/private/ca.key
+new_certs_dir           = $dir/issued
+serial                  = $dir/db/serial
+crlnumber               = $dir/db/crlnumber
+database                = $dir/db/index.txt
+unique_subject          = no
+default_days            = 365
+default_md              = sha384
+policy                  = policy_loose
+email_in_dn             = no
+preserve                = no
+name_opt                = $name_opt
+cert_opt                = ca_default
+copy_extensions         = copy
+default_crl_days        = 7
+
+[ policy_loose ]
+countryName             = optional
+stateOrProvinceName     = optional
+localityName            = optional
+organizationName        = optional
+organizationalUnitName  = optional
+commonName              = supplied
+emailAddress            = optional
+
+[ crl_ext ]
+authorityKeyIdentifier  = keyid:always
+
+[ base_ee_ext ]
+subjectKeyIdentifier    = hash
+authorityKeyIdentifier  = keyid:always
+basicConstraints        = critical,CA:false
+crlDistributionPoints   = @crl_info
+authorityInfoAccess     = @issuer_info
+
+[ crl_info ]
+URI.0                   = $base_url/issuing.crl
+
+[ issuer_info ]
+caIssuers;URI.0         = $aia_url/issuing.crt
+OCSP;URI.0              = $ocsp_url

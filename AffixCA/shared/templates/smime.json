@@ -1,0 +1,25 @@
+{
+  "id": "smime",
+  "name": "S/MIME Email",
+  "description": "Email encryption and digital signatures",
+  "category": "email",
+  "icon": "email",
+  "color": "#10d9a0",
+  "ekus": ["emailProtection", "clientAuth"],
+  "keyUsage": ["digitalSignature", "keyEncipherment", "nonRepudiation"],
+  "critical": true,
+  "maxDays": 1095,
+  "defaultDays": 730,
+  "subjectFields": {
+    "cn": { "required": true, "label": "Full Name", "placeholder": "Jane Smith" },
+    "o":  { "required": false, "label": "Organization" },
+    "c":  { "required": false, "label": "Country", "maxLength": 2 }
+  },
+  "sanTypes": ["email"],
+  "sanRequired": true,
+  "autoSanFromCN": false,
+  "generateKey": true,
+  "allowCSR": true,
+  "opensslExtFile": "smime.cnf",
+  "dynamicExt": false
+}

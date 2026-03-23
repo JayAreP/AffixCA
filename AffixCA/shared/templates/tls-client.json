@@ -1,0 +1,25 @@
+{
+  "id": "tls-client",
+  "name": "TLS Client",
+  "description": "Mutual TLS, service mesh, client authentication",
+  "category": "tls",
+  "icon": "client",
+  "color": "#3b82f6",
+  "ekus": ["clientAuth"],
+  "keyUsage": ["digitalSignature"],
+  "critical": true,
+  "maxDays": 825,
+  "defaultDays": 365,
+  "subjectFields": {
+    "cn": { "required": true, "label": "Common Name", "placeholder": "service-name" },
+    "o":  { "required": false, "label": "Organization" },
+    "c":  { "required": false, "label": "Country", "maxLength": 2 }
+  },
+  "sanTypes": ["DNS", "IP", "URI"],
+  "sanRequired": false,
+  "autoSanFromCN": false,
+  "generateKey": true,
+  "allowCSR": true,
+  "opensslExtFile": "tls-client.cnf",
+  "dynamicExt": false
+}

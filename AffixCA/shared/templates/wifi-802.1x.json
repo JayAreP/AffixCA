@@ -1,0 +1,25 @@
+{
+  "id": "wifi-802.1x",
+  "name": "WiFi / EAP-TLS",
+  "description": "RADIUS wireless authentication (802.1x)",
+  "category": "network",
+  "icon": "wifi",
+  "color": "#06b6d4",
+  "ekus": ["clientAuth"],
+  "keyUsage": ["digitalSignature"],
+  "critical": true,
+  "maxDays": 730,
+  "defaultDays": 365,
+  "subjectFields": {
+    "cn": { "required": true, "label": "Username or Device", "placeholder": "jsmith@corp.local" },
+    "o":  { "required": false, "label": "Organization" },
+    "ou": { "required": false, "label": "Department" }
+  },
+  "sanTypes": ["email", "DNS"],
+  "sanRequired": false,
+  "autoSanFromCN": false,
+  "generateKey": true,
+  "allowCSR": true,
+  "opensslExtFile": "wifi-eaptls.cnf",
+  "dynamicExt": false
+}

@@ -1,0 +1,24 @@
+{
+  "id": "smartcard-logon",
+  "name": "Smart Card Logon",
+  "description": "Windows smart card / PKINIT authentication",
+  "category": "auth",
+  "icon": "card",
+  "color": "#ec4899",
+  "ekus": ["1.3.6.1.4.1.311.20.2.2", "clientAuth"],
+  "keyUsage": ["digitalSignature"],
+  "critical": true,
+  "maxDays": 730,
+  "defaultDays": 365,
+  "subjectFields": {
+    "cn": { "required": true, "label": "User Principal Name", "placeholder": "jsmith@corp.local" },
+    "o":  { "required": false, "label": "Organization" }
+  },
+  "sanTypes": ["email"],
+  "sanRequired": true,
+  "autoSanFromCN": true,
+  "generateKey": true,
+  "allowCSR": true,
+  "opensslExtFile": "smartcard-logon.cnf",
+  "dynamicExt": false
+}

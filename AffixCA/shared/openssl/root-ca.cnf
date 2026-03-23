@@ -1,0 +1,92 @@
+# =============================================================================
+#  Root CA  ·  openssl.cnf
+#  Self-signed; signs Intermediate CA CSRs only.
+#  Long CRL life (offline CA pattern).
+# =============================================================================
+
+[ default ]
+ca                      = root-ca
+dir                     = /ca
+base_url                = http://crl.example.com
+aia_url                 = http://certs.example.com
+ocsp_url                = http://ocsp.example.com
+name_opt                = multiline,-esc_msb,utf8
+
+[ req ]
+default_bits            = 4096
+default_md              = sha384
+utf8                    = yes
+string_mask             = utf8only
+prompt                  = no
+distinguished_name      = ca_dn
+req_extensions          = ca_reqext
+
+[ ca_dn ]
+countryName             = "US"
+organizationName        = "Example Corp"
+commonName              = "Example Corp Root CA"
+
+[ ca_reqext ]
+subjectKeyIdentifier    = hash
+keyUsage                = critical,keyCertSign,cRLSign
+
+[ ca ]
+default_ca              = root_ca
+
+[ root_ca ]
+certificate             = $dir/certs/ca.crt
+private_key             = $dir/private/ca.key
+new_certs_dir           = $dir/issued
+serial                  = $dir/db/serial
+crlnumber               = $dir/db/crlnumber
+database                = $dir/db/index.txt
+unique_subject          = yes
+default_days            = 5475
+default_md              = sha384
+policy                  = policy_strict
+email_in_dn             = no
+preserve                = no
+name_opt                = $name_opt
+cert_opt                = ca_default
+copy_extensions         = none
+x509_extensions         = intermediate_ca_ext
+default_crl_days        = 3650
+
+[ policy_strict ]
+countryName             = supplied
+stateOrProvinceName     = optional
+localityName            = optional
+organizationName        = supplied
+organizationalUnitName  = optional
+commonName              = supplied
+emailAddress            = optional
+
+[ intermediate_ca_ext ]
+subjectKeyIdentifier    = hash
+authorityKeyIdentifier  = keyid:always
+basicConstraints        = critical,CA:true,pathlen:1
+keyUsage                = critical,keyCertSign,cRLSign
+crlDistributionPoints   = @crl_info
+authorityInfoAccess     = @issuer_info
+certificatePolicies     = @polsect
+
+[ crl_info ]
+URI.0                   = $base_url/root.crl
+
+[ issuer_info ]
+caIssuers;URI.0         = $aia_url/root.crt
+OCSP;URI.0              = $ocsp_url
+
+[ polsect ]
+policyIdentifier        = anyPolicy
+
+[ crl_ext ]
+authorityKeyIdentifier  = keyid:always
+
+[ ocsp_ext ]
+basicConstraints        = critical,CA:false
+subjectKeyIdentifier    = hash
+authorityKeyIdentifier  = keyid:always
+keyUsage                = critical,digitalSignature
+extendedKeyUsage        = critical,OCSPSigning
+noCheck                 = ignored

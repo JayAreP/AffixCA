@@ -1,0 +1,18 @@
+# Profile: TLS Server Certificate
+# EKU: serverAuth — SANs appended dynamically at signing time
+
+[ tls_server ]
+subjectKeyIdentifier    = hash
+authorityKeyIdentifier  = keyid:always
+basicConstraints        = critical,CA:false
+keyUsage                = critical,digitalSignature,keyEncipherment
+extendedKeyUsage        = serverAuth
+crlDistributionPoints   = @crl_info
+authorityInfoAccess     = @ocsp_issuer_info
+
+[ crl_info ]
+URI.0                   = ${ENV::CDP_URL}
+
+[ ocsp_issuer_info ]
+OCSP;URI.0              = ${ENV::OCSP_URL}
+caIssuers;URI.0         = ${ENV::AIA_URL}

@@ -1094,6 +1094,7 @@ const App = {
     if (viewId === 'templates')    loadTemplates();
     if (viewId === 'users')        loadUsers();
     if (viewId === 'webserver')    loadWebServerCert();
+    if (viewId === 'admin')        loadAdminInfo();
   },
 };
 
@@ -1240,6 +1241,77 @@ function wireEvents() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') Modal.close();
   });
+
+  // Admin: decommission confirmation input
+  document.getElementById('admin-confirm-text')?.addEventListener('input', function() {
+    const btn = document.getElementById('btn-decommission');
+    if (this.value === 'DECOMMISSION') {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+    } else {
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+      btn.style.cursor = 'not-allowed';
+    }
+  });
+
+  // Admin: decommission button
+  document.getElementById('btn-decommission')?.addEventListener('click', async function() {
+    const confirm = document.getElementById('admin-confirm-text')?.value;
+    if (confirm !== 'DECOMMISSION') return;
+
+    this.disabled = true;
+    this.textContent = 'Decommissioning...';
+
+    try {
+      const result = await API.post('/api/admin/decommission', { confirm: 'DECOMMISSION' });
+      if (result.success) {
+        Toast.show('Node decommissioned. Redirecting to setup...', 'success', 3000);
+        setTimeout(() => { window.location.href = '/ui/setup.html'; }, 3000);
+      } else {
+        Toast.show(result.error || 'Decommission failed', 'error');
+        this.disabled = false;
+        this.textContent = 'Decommission This Node';
+      }
+    } catch (e) {
+      Toast.show('Decommission failed: ' + e.message, 'error');
+      this.disabled = false;
+      this.textContent = 'Decommission This Node';
+    }
+  });
+}
+
+// ── Administration ────────────────────────────────────────────────────────────
+async function loadAdminInfo() {
+  const container = document.getElementById('admin-node-info');
+  if (!container) return;
+  try {
+    const data = await API.get('/api/admin/info');
+    if (!data.configured) {
+      container.innerHTML = '<p class="text-muted">This node is not configured.</p>';
+      return;
+    }
+    const rows = [
+      ['Instance ID', data.instanceId || '\u2014'],
+      ['CA Name', data.caName || '\u2014'],
+      ['Roles', (data.roles || []).join(', ') || '\u2014'],
+      ['Mode', data.standalone ? 'Standalone' : 'Distributed'],
+      ['Key Algorithm', `${(data.keyAlgo || 'rsa').toUpperCase()} ${data.keyParam || ''}`],
+      ['Subject', data.certSubject || '\u2014'],
+      ['Serial', data.serial || '\u2014'],
+      ['Fingerprint', data.fingerprint || '\u2014'],
+      ['Valid From', data.notBefore || '\u2014'],
+      ['Valid Until', data.notAfter || '\u2014'],
+      ['Parent URL', data.parentUrl || 'None (Root)'],
+      ['Configured At', data.createdAt ? new Date(data.createdAt).toLocaleString() : '\u2014'],
+    ];
+    container.innerHTML = `<table class="table"><tbody>${rows.map(([k,v]) =>
+      `<tr><td style="color:var(--text-mid); width:160px; white-space:nowrap;">${escHtml(k)}</td><td style="font-family:'JetBrains Mono',monospace; font-size:12px;">${escHtml(v)}</td></tr>`
+    ).join('')}</tbody></table>`;
+  } catch (e) {
+    container.innerHTML = `<p class="text-muted">Failed to load: ${escHtml(e.message)}</p>`;
+  }
 }
 
 // ── Polling ───────────────────────────────────────────────────────────────────

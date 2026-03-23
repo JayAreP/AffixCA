@@ -695,8 +695,17 @@
         <div class="fg">
           <div class="fgroup">
             <label>Parent CA URL *</label>
-            <input id="f-parent-url" type="url" placeholder="https://root-ca.example.com:8080" />
+            <input id="f-parent-url" type="url" placeholder="https://root-ca.example.com:8443" />
             <span class="hint">The base URL of the parent Affix/CA instance that will sign this CA's certificate</span>
+          </div>
+          <div class="fgroup" style="margin-top:12px;">
+            <label>Parent Admin Username *</label>
+            <input id="f-parent-user" type="text" placeholder="admin" value="admin" />
+          </div>
+          <div class="fgroup" style="margin-top:8px;">
+            <label>Parent Admin Password *</label>
+            <input id="f-parent-pass" type="password" placeholder="Password for the parent CA admin account" />
+            <span class="hint">Credentials for the parent CA &mdash; required to authorize CSR signing</span>
           </div>
           <button class="btn btn-test" id="btn-test-conn" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -705,6 +714,42 @@
             </svg>
             Test Connection
           </button>
+          <button class="btn btn-ghost" id="btn-parent-help" type="button" style="margin-top:6px; font-size:12px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            Connection Help
+          </button>
+          <div class="conn-help" id="conn-help" style="display:none; margin-top:12px; padding:16px; background:rgba(255,255,255,0.03); border:1px solid var(--border2); border-radius:var(--radius); font-size:13px; line-height:1.6;">
+            <div style="font-weight:600; margin-bottom:8px; color:var(--cyan);">How to connect to the Parent CA</div>
+            <p style="margin-bottom:10px; color:var(--text-mid);">
+              During initial setup, the parent CA uses a self-signed certificate. Both HTTPS and HTTP are supported:
+            </p>
+            <div style="margin-bottom:10px;">
+              <strong style="color:var(--green);">HTTPS (recommended)</strong>
+              <span style="color:var(--text-mid);"> &mdash; <code style="font-family:'JetBrains Mono',monospace; font-size:11px; background:rgba(0,0,0,.3); padding:2px 6px; border-radius:4px;">https://&lt;ip-or-hostname&gt;:8443</code></span>
+              <div style="color:var(--text-mid); margin-top:4px; padding-left:12px;">
+                SSL certificate validation is automatically skipped during setup to allow connecting to a parent CA that only has a self-signed web server certificate. This is normal and expected during CA bootstrap.
+              </div>
+            </div>
+            <div style="margin-bottom:10px;">
+              <strong style="color:var(--amber);">HTTP (alternative)</strong>
+              <span style="color:var(--text-mid);"> &mdash; <code style="font-family:'JetBrains Mono',monospace; font-size:11px; background:rgba(0,0,0,.3); padding:2px 6px; border-radius:4px;">http://&lt;ip-or-hostname&gt;:8080</code></span>
+              <div style="color:var(--text-mid); margin-top:4px; padding-left:12px;">
+                The parent CA exposes health, status, signing, and chain endpoints over HTTP on port 8080. Use this if HTTPS connectivity is problematic. Note: CA private keys are never transmitted over this connection &mdash; only the CSR and signed certificate.
+              </div>
+            </div>
+            <div style="margin-bottom:6px;">
+              <strong style="color:var(--text);">DNS vs IP address</strong>
+              <div style="color:var(--text-mid); margin-top:4px; padding-left:12px;">
+                Using a DNS hostname is preferred if available, as it makes the topology easier to manage if IPs change. However, IP addresses work fine. Always include the port number (8443 for HTTPS, 8080 for HTTP).
+              </div>
+            </div>
+            <div style="margin-top:12px; padding:10px; background:rgba(249,115,22,0.08); border:1px solid rgba(249,115,22,0.2); border-radius:8px; color:var(--text-mid); font-size:12px;">
+              <strong style="color:var(--cyan);">Tip:</strong> Make sure the parent CA has completed its own setup before connecting. The parent must be fully initialized with its root certificate generated.
+            </div>
+          </div>
           <div class="conn-result" id="conn-result">
             <div class="conn-title" id="conn-title"></div>
             <div class="conn-detail" id="conn-detail"></div>
@@ -1426,18 +1471,34 @@
   document.getElementById('btn-back-3').addEventListener('click', () => goStep(prevVisibleStep(3)));
   document.getElementById('btn-next-3').addEventListener('click', () => {
     const url = v('f-parent-url').trim();
-    if (!url) {
-      document.getElementById('f-parent-url').classList.add('err');
-      return;
-    }
+    const parentUser = v('f-parent-user').trim();
+    const parentPass = v('f-parent-pass');
+    let ok = true;
+    if (!url) { document.getElementById('f-parent-url').classList.add('err'); ok = false; }
+    if (!parentUser) { document.getElementById('f-parent-user').classList.add('err'); ok = false; }
+    if (!parentPass) { document.getElementById('f-parent-pass').classList.add('err'); ok = false; }
+    if (!ok) return;
     goStep(nextVisibleStep(3));
+  });
+
+  // Help toggle button
+  document.getElementById('btn-parent-help').addEventListener('click', function() {
+    const help = document.getElementById('conn-help');
+    help.style.display = help.style.display === 'none' ? 'block' : 'none';
   });
 
   // Test connection button
   document.getElementById('btn-test-conn').addEventListener('click', async function() {
     const url = v('f-parent-url').trim();
+    const parentUser = v('f-parent-user').trim();
+    const parentPass = v('f-parent-pass');
     if (!url) {
       document.getElementById('f-parent-url').classList.add('err');
+      return;
+    }
+    if (!parentUser || !parentPass) {
+      if (!parentUser) document.getElementById('f-parent-user').classList.add('err');
+      if (!parentPass) document.getElementById('f-parent-pass').classList.add('err');
       return;
     }
     this.disabled = true;
@@ -1449,7 +1510,7 @@
       const res = await fetch('/api/setup/test-parent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parentUrl: url }),
+        body: JSON.stringify({ parentUrl: url, parentUser, parentPass }),
       });
       const data = await res.json();
       result.classList.add('show');
@@ -1458,7 +1519,7 @@
         result.classList.add('success');
         document.getElementById('conn-title').textContent = 'Connection Successful';
         document.getElementById('conn-detail').innerHTML =
-          `CA Name: ${esc(data.name || '\u2014')}<br>` +
+          `CA Name: ${esc(data.caName || data.name || '\u2014')}<br>` +
           `Subject: ${esc(data.subject || '\u2014')}<br>` +
           `Roles: ${esc((data.roles || []).join(', ') || '\u2014')}`;
       } else {
@@ -1553,6 +1614,7 @@
 
     if (needsParent()) {
       rows.push(['Parent CA URL', v('f-parent-url').trim()]);
+      rows.push(['Parent Auth', v('f-parent-user').trim() + ' / ********']);
     }
 
     rows.push(
@@ -1643,7 +1705,9 @@
     const payload = {
       mode: deployMode,
       role: deployMode === 'standalone' ? 'standalone' : distRole,
-      parentUrl: needsParent() ? v('f-parent-url').trim() : undefined,
+      parentUrl:  needsParent() ? v('f-parent-url').trim() : undefined,
+      parentUser: needsParent() ? v('f-parent-user').trim() : undefined,
+      parentPass: needsParent() ? v('f-parent-pass') : undefined,
       subject: {
         o:  v('f-org').trim(),
         cn: v('f-cn').trim(),

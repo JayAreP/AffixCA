@@ -8,6 +8,10 @@
 #
 #  Usage:
 #    sudo bash install.sh [--port 443] [--dir /opt/affix-ca] [--pass <secret>]
+#
+#  If run on an already-configured node, the script will pull the latest
+#  container image from GHCR, recreate the container, and exit — preserving
+#  all CA data, certificates, and keys.
 # =============================================================================
 
 set -euo pipefail
@@ -42,6 +46,56 @@ done
 # ── Root check ────────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
     error "This script must be run as root. Try: sudo bash $0"
+fi
+
+# =============================================================================
+#  Upgrade path — if already installed, pull latest image and recreate
+# =============================================================================
+if [[ -f "${INSTALL_DIR}/docker-compose.yml" ]]; then
+    info "Existing installation detected at ${INSTALL_DIR}."
+
+    # Capture the currently running image digest (before pull)
+    OLD_DIGEST="$(docker inspect --format='{{.Image}}' affix-ca 2>/dev/null || echo "none")"
+
+    info "Pulling latest image from GHCR..."
+    cd "${INSTALL_DIR}"
+    docker compose pull
+
+    NEW_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}" 2>/dev/null || echo "unknown")"
+
+    if [[ "$OLD_DIGEST" == "none" ]]; then
+        info "Container was not running. Starting with latest image..."
+    else
+        info "Recreating container with updated image..."
+    fi
+
+    docker compose up -d --force-recreate
+
+    # ── Verify container came up ────────────────────────────────────────
+    RETRIES=12
+    until docker inspect -f '{{.State.Running}}' affix-ca 2>/dev/null | grep -q true; do
+        RETRIES=$((RETRIES - 1))
+        if [[ $RETRIES -le 0 ]]; then
+            error "Container did not start within 60 s. Check logs: docker logs affix-ca"
+        fi
+        sleep 5
+    done
+
+    RUNNING_IMAGE="$(docker inspect --format='{{.Config.Image}}' affix-ca 2>/dev/null || echo "unknown")"
+
+    echo ""
+    echo -e "${GREEN}============================================================${NC}"
+    echo -e "${GREEN}  Affix/CA upgraded successfully!${NC}"
+    echo -e "${GREEN}============================================================${NC}"
+    echo ""
+    echo -e "  Image:        ${CYAN}${RUNNING_IMAGE}${NC}"
+    echo -e "  Install dir:  ${INSTALL_DIR}"
+    echo -e "  CA data:      Preserved (Docker volume 'ca-data')"
+    echo ""
+    echo -e "  Your CA configuration, certificates, and keys are untouched."
+    echo -e "  Check logs:   ${CYAN}docker logs -f affix-ca${NC}"
+    echo ""
+    exit 0
 fi
 
 # ── Detect OS ─────────────────────────────────────────────────────────────────

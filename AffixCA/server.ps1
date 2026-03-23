@@ -44,8 +44,11 @@ Start-PodeServer -Threads 4 {
             if (-not $path) { $path = $WebEvent.Request.Url.AbsolutePath }
             if (-not $path) { $path = '/' }
 
-            # Only allow public PKI endpoints over HTTP
+            # Allow public PKI endpoints + inter-node setup endpoints over HTTP
             if ($path -eq '/api/health' -or
+                $path -like '/api/auth/login*' -or
+                $path -eq '/api/status' -or
+                $path -eq '/api/sign-csr' -or
                 $path -like '/api/chain*' -or
                 $path -like '/api/crl/*' -or
                 $path -like '/api/ocsp*') {

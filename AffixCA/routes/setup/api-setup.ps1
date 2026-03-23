@@ -18,16 +18,45 @@ Add-PodeRoute -Method 'Get' -Path '/api/setup/status' -ScriptBlock {
 
 Add-PodeRoute -Method 'Post' -Path '/api/setup/test-parent' -ScriptBlock {
     $body = $WebEvent.Data
-    $parentUrl = $body.parentUrl
+    $parentUrl  = $body.parentUrl
+    $parentUser = $body.parentUser
+    $parentPass = $body.parentPass
+
     if ([string]::IsNullOrWhiteSpace($parentUrl)) {
         Set-PodeResponseStatus -Code 400
         Write-PodeJsonResponse -Value @{ error = 'parentUrl is required.' }
         return
     }
+    if ([string]::IsNullOrWhiteSpace($parentUser) -or [string]::IsNullOrWhiteSpace($parentPass)) {
+        Set-PodeResponseStatus -Code 400
+        Write-PodeJsonResponse -Value @{ error = 'Parent CA credentials are required.' }
+        return
+    }
 
     try {
-        $health = Invoke-RestMethod -Uri "$parentUrl/api/health" -TimeoutSec 5
-        $status = Invoke-RestMethod -Uri "$parentUrl/api/status" -TimeoutSec 5
+        # Health endpoint is public — no auth needed
+        $health = Invoke-RestMethod -Uri "$parentUrl/api/health" -TimeoutSec 5 -SkipCertificateCheck
+
+        # Authenticate against parent CA to get a Bearer token
+        $loginBody = @{ username = $parentUser; password = $parentPass } | ConvertTo-Json
+        $loginResult = Invoke-RestMethod -Uri "$parentUrl/api/auth/login" `
+            -Method Post -ContentType 'application/json' -Body $loginBody `
+            -TimeoutSec 5 -SkipCertificateCheck
+
+        if (-not $loginResult.success -or -not $loginResult.token) {
+            Write-PodeJsonResponse -Value @{
+                success = $false
+                error   = "Authentication failed on parent CA: $($loginResult.message ?? 'invalid credentials')"
+            }
+            return
+        }
+
+        $authHeaders = @{ Authorization = "Bearer $($loginResult.token)" }
+
+        # Status endpoint requires auth
+        $status = Invoke-RestMethod -Uri "$parentUrl/api/status" -TimeoutSec 5 `
+            -SkipCertificateCheck -Headers $authHeaders
+
         Write-PodeJsonResponse -Value @{
             success     = $true
             initialized = $health.initialized
@@ -181,12 +210,36 @@ Add-PodeRoute -Method 'Post' -Path '/api/setup/init' -ScriptBlock {
 
         } else {
             # Distributed: non-root role (intermediate or issuing)
-            $parentUrl = $body.parentUrl
+            $parentUrl  = $body.parentUrl
+            $parentUser = $body.parentUser
+            $parentPass = $body.parentPass
+
             if ([string]::IsNullOrWhiteSpace($parentUrl)) {
                 Set-PodeResponseStatus -Code 400
                 Write-PodeJsonResponse -Value @{ error = 'parentUrl is required for non-root roles.' }
                 return
             }
+            if ([string]::IsNullOrWhiteSpace($parentUser) -or [string]::IsNullOrWhiteSpace($parentPass)) {
+                Set-PodeResponseStatus -Code 400
+                Write-PodeJsonResponse -Value @{ error = 'Parent CA credentials are required for non-root roles.' }
+                return
+            }
+
+            # Authenticate against parent CA
+            $loginBody = @{ username = $parentUser; password = $parentPass } | ConvertTo-Json
+            $loginResult = Invoke-RestMethod -Uri "$parentUrl/api/auth/login" `
+                -Method Post -ContentType 'application/json' -Body $loginBody `
+                -TimeoutSec 10 -SkipCertificateCheck
+
+            if (-not $loginResult.success -or -not $loginResult.token) {
+                Set-PodeResponseStatus -Code 401
+                Write-PodeJsonResponse -Value @{
+                    error = "Failed to authenticate with parent CA: $($loginResult.message ?? 'invalid credentials')"
+                }
+                return
+            }
+
+            $parentAuthHeaders = @{ Authorization = "Bearer $($loginResult.token)" }
 
             $role = $roles[0]
             $caDir = '/ca'
@@ -216,14 +269,15 @@ Add-PodeRoute -Method 'Post' -Path '/api/setup/init' -ScriptBlock {
             New-CACSR -KeyPath "$caDir/private/ca.key" -CsrPath "$caDir/csr/ca.csr" `
                 -ConfigPath $caCfg -SecretFile $secretFile
 
-            # Submit CSR to parent CA
+            # Submit CSR to parent CA (authenticated)
             $csrPEM = Get-Content "$caDir/csr/ca.csr" -Raw
             $profile = if ($role -eq 'intermediate') { 'intermediate_ca_ext' } else { 'issuing_ca_ext' }
             $signDays = if ($role -eq 'intermediate') { 5475 } else { 3652 }
 
             $signBody = @{ csr = $csrPEM; profile = $profile; days = $signDays } | ConvertTo-Json -Depth 5
             $signResult = Invoke-RestMethod -Uri "$parentUrl/api/sign-csr" `
-                -Method Post -ContentType 'application/json' -Body $signBody -TimeoutSec 120
+                -Method Post -ContentType 'application/json' -Body $signBody `
+                -TimeoutSec 120 -SkipCertificateCheck -Headers $parentAuthHeaders
 
             if (-not $signResult.certificate) { throw "Parent CA failed to sign CSR" }
 
@@ -232,7 +286,8 @@ Add-PodeRoute -Method 'Post' -Path '/api/setup/init' -ScriptBlock {
 
             # Get parent's chain and build ours
             try {
-                $parentChain = Invoke-RestMethod -Uri "$parentUrl/api/chain" -TimeoutSec 10
+                $parentChain = Invoke-RestMethod -Uri "$parentUrl/api/chain" -TimeoutSec 10 `
+                    -SkipCertificateCheck -Headers $parentAuthHeaders
                 if ($parentChain.chain) {
                     $parentChain.chain | Set-Content "$caDir/chain/chain.pem"
                 }

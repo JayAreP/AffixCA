@@ -143,6 +143,12 @@
           </svg>
           Web Server
         </a></li>
+        <li><a href="#" data-view="admin" class="nav-link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+          </svg>
+          Administration
+        </a></li>
       </ul>
 
       <div class="sidebar-footer">
@@ -795,6 +801,55 @@
                 <line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
               Install Certificate
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Administration View ──────────────────────────────────────── -->
+      <div id="view-admin" class="view">
+        <div class="view-header">
+          <h1 class="view-title">Administration</h1>
+          <div class="view-subtitle">Node management, decommission, and reset operations</div>
+        </div>
+
+        <!-- Node Info -->
+        <div class="panel" id="admin-info-panel">
+          <div class="panel-header"><span class="panel-title">Current Node Configuration</span></div>
+          <div class="panel-body" id="admin-node-info">
+            <p class="text-muted">Loading...</p>
+          </div>
+        </div>
+
+        <!-- Decommission -->
+        <div class="panel" style="margin-top:20px; border-color:rgba(244,63,94,0.3);">
+          <div class="panel-header" style="border-color:rgba(244,63,94,0.2);">
+            <span class="panel-title" style="color:var(--red);">Decommission Node</span>
+          </div>
+          <div class="panel-body">
+            <p class="text-muted" style="margin-bottom:12px;">
+              This will remove all CA configuration, certificates, keys, and CRLs from this node,
+              returning it to the setup wizard. The current configuration will be archived before removal.
+            </p>
+            <div style="padding:12px; background:rgba(244,63,94,0.06); border:1px solid rgba(244,63,94,0.2); border-radius:8px; margin-bottom:16px;">
+              <strong style="color:var(--red);">Warning:</strong>
+              <span style="color:var(--text-mid);">
+                This action is irreversible. If this is a Root CA, all subordinate CAs that depend on it will be orphaned.
+                If this is an Intermediate CA, any Issuing CAs signed by it will lose their chain of trust.
+                Make sure you have backups of any certificates or keys you need before proceeding.
+              </span>
+            </div>
+            <div class="form-group" style="margin-bottom:16px;">
+              <label>Type <code style="font-family:'JetBrains Mono',monospace; font-size:12px; background:rgba(0,0,0,.3); padding:2px 8px; border-radius:4px;">DECOMMISSION</code> to confirm</label>
+              <input type="text" id="admin-confirm-text" class="input" placeholder="Type DECOMMISSION to enable the button" autocomplete="off" spellcheck="false" />
+            </div>
+            <button class="btn" id="btn-decommission" disabled
+              style="background:var(--red); color:#fff; opacity:0.5; cursor:not-allowed;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                <line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
+              </svg>
+              Decommission This Node
             </button>
           </div>
         </div>

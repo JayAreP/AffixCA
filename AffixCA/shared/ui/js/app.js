@@ -272,8 +272,39 @@ function renderHierarchy(status) {
     }
 
     svg.setAttribute('height', yPos - yStep + 60);
+  } else if (!status.standalone && roles.length === 1) {
+    // Distributed single-role: show position in hierarchy
+    const selfType = roles[0] || 'issuing';
+    const tierOrder = ['root', 'intermediate', 'issuing'];
+    const selfIndex = tierOrder.indexOf(selfType);
+    let yPos = 30;
+    const yStep = 80;
+
+    // Show ancestor tiers as dimmed placeholders
+    for (let i = 0; i < selfIndex; i++) {
+      nodes.push({
+        id: tierOrder[i], label: tierOrder[i].charAt(0).toUpperCase() + tierOrder[i].slice(1) + ' CA',
+        sub: status.parentUrl && i === selfIndex - 1 ? 'parent' : '',
+        x: W / 2, y: yPos, type: tierOrder[i], dimmed: true,
+      });
+      yPos += yStep;
+    }
+
+    // This node (highlighted)
+    nodes.push({
+      id: 'self', label: status.caName || 'This CA', sub: 'this node',
+      x: W / 2, y: yPos, type: selfType,
+    });
+    yPos += yStep;
+
+    // Connect ancestor chain
+    for (let i = 1; i < nodes.length; i++) {
+      edges.push([nodes[i - 1].id, nodes[i].id]);
+    }
+
+    svg.setAttribute('height', yPos - yStep + 60);
   } else {
-    // Single-role fallback: show self only
+    // Unknown fallback: show self only
     const selfType = roles[0] || 'issuing';
     nodes = [
       { id: 'self', label: status.caName || 'This CA', sub: '', x: W / 2, y: 50, type: selfType },
@@ -303,8 +334,10 @@ function renderHierarchy(status) {
   for (const n of nodes) {
     const c    = typeColors[n.type] || typeColors.issuing;
     // Highlight self: match if this CA's roles include the node type, or if the node is named as this CA
-    const isSelf = (status.caName && n.label === status.caName) || roles.includes(n.type);
+    const isSelf = !n.dimmed && ((status.caName && n.label === status.caName) || roles.includes(n.type));
+    const isDimmed = n.dimmed === true;
     const glowFilter = isSelf ? ` filter="url(#glow-${n.id})"` : '';
+    const nodeOpacity = isDimmed ? '0.45' : isSelf ? '1' : '0.85';
 
     markup += `
       <defs>
@@ -316,12 +349,12 @@ function renderHierarchy(status) {
       <g class="hier-node" transform="translate(${n.x - NW/2},${n.y - NH/2})"${glowFilter}>
         <rect width="${NW}" height="${NH}" rx="8" ry="8"
               fill="${c.fill}" stroke="${c.stroke}" stroke-width="${isSelf ? 2 : 1.5}"
-              ${isSelf ? `opacity="1"` : 'opacity="0.85"'}/>
+              opacity="${nodeOpacity}" ${isDimmed ? 'stroke-dasharray="4 3"' : ''}/>
         <circle cx="${NW - 12}" cy="12" r="4.5" class="hier-status-dot"
                 fill="${isSelf ? c.stroke : 'rgba(100,120,140,0.4)'}"
                 ${isSelf ? `style="filter: drop-shadow(0 0 4px ${c.stroke})"` : ''}/>
-        <text x="${NW/2}" y="${NH/2 - 4}" text-anchor="middle" class="hier-label">${n.label}</text>
-        <text x="${NW/2}" y="${NH/2 + 11}" text-anchor="middle" class="hier-sublabel">${n.sub}</text>
+        <text x="${NW/2}" y="${NH/2 - 4}" text-anchor="middle" class="hier-label" ${isDimmed ? 'opacity="0.5"' : ''}>${n.label}</text>
+        <text x="${NW/2}" y="${NH/2 + 11}" text-anchor="middle" class="hier-sublabel" ${isDimmed ? 'opacity="0.5"' : ''}>${n.sub}</text>
       </g>`;
   }
   markup += '</g></svg>';

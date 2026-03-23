@@ -86,7 +86,13 @@ Add-PodeRoute -Method 'Post' -Path '/api/setup/init' -ScriptBlock {
 
     try {
         $mode       = $body.mode ?? 'standalone'
-        $roles      = @($body.roles ?? @('root', 'intermediate', 'issuing'))
+        # Frontend sends 'role' (singular); normalize to an array
+        $roleInput  = $body.role ?? $body.roles
+        if ($mode -eq 'standalone' -or -not $roleInput) {
+            $roles = @('root', 'intermediate', 'issuing')
+        } else {
+            $roles = @(if ($roleInput -is [array]) { $roleInput } else { @($roleInput) })
+        }
         $subj       = $body.subject ?? @{}
         $keyAlgo    = $body.keyAlgo ?? 'rsa'
         $keyParam   = $body.keyParam ?? '4096'

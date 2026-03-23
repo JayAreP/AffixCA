@@ -53,21 +53,38 @@ fi
 # =============================================================================
 if [[ -f "${INSTALL_DIR}/docker-compose.yml" ]]; then
     info "Existing installation detected at ${INSTALL_DIR}."
+    cd "${INSTALL_DIR}"
 
-    # Capture the currently running image digest (before pull)
-    OLD_DIGEST="$(docker inspect --format='{{.Image}}' affix-ca 2>/dev/null || echo "none")"
+    # Capture the image ID currently used by the running container
+    OLD_IMAGE_ID="$(docker inspect --format='{{.Image}}' affix-ca 2>/dev/null || echo "none")"
+    if [[ "$OLD_IMAGE_ID" != "none" ]]; then
+        OLD_SHORT="${OLD_IMAGE_ID:7:12}"
+        info "Current image: ${OLD_SHORT}"
+    fi
 
     info "Pulling latest image from GHCR..."
-    cd "${INSTALL_DIR}"
-    docker compose pull
+    docker compose pull 2>&1 | tee /dev/stderr | grep -q "Downloaded newer image" && PULL_NEW=true || PULL_NEW=false
 
-    NEW_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}" 2>/dev/null || echo "unknown")"
+    # Get the image ID after pull (what :latest now points to)
+    NEW_IMAGE_ID="$(docker image inspect --format='{{.Id}}' "${IMAGE}" 2>/dev/null || echo "unknown")"
+    NEW_SHORT="${NEW_IMAGE_ID:7:12}"
 
-    if [[ "$OLD_DIGEST" == "none" ]]; then
-        info "Container was not running. Starting with latest image..."
-    else
-        info "Recreating container with updated image..."
+    if [[ "$OLD_IMAGE_ID" == "$NEW_IMAGE_ID" ]]; then
+        echo ""
+        echo -e "${YELLOW}============================================================${NC}"
+        echo -e "${YELLOW}  No update available — already running the latest image.${NC}"
+        echo -e "${YELLOW}============================================================${NC}"
+        echo ""
+        echo -e "  Image ID:     ${CYAN}${NEW_SHORT}${NC}"
+        echo -e "  Install dir:  ${INSTALL_DIR}"
+        echo ""
+        echo -e "  To force a recreate anyway:  ${CYAN}cd ${INSTALL_DIR} && docker compose up -d --force-recreate${NC}"
+        echo ""
+        exit 0
     fi
+
+    info "New image available: ${OLD_SHORT:-none} -> ${NEW_SHORT}"
+    info "Recreating container with updated image..."
 
     docker compose up -d --force-recreate
 
@@ -81,18 +98,28 @@ if [[ -f "${INSTALL_DIR}/docker-compose.yml" ]]; then
         sleep 5
     done
 
-    RUNNING_IMAGE="$(docker inspect --format='{{.Config.Image}}' affix-ca 2>/dev/null || echo "unknown")"
+    # Confirm the running container is using the new image
+    RUNNING_IMAGE_ID="$(docker inspect --format='{{.Image}}' affix-ca 2>/dev/null || echo "unknown")"
+    RUNNING_SHORT="${RUNNING_IMAGE_ID:7:12}"
+    CREATED="$(docker inspect --format='{{.Created}}' affix-ca 2>/dev/null || echo "unknown")"
 
     echo ""
     echo -e "${GREEN}============================================================${NC}"
     echo -e "${GREEN}  Affix/CA upgraded successfully!${NC}"
     echo -e "${GREEN}============================================================${NC}"
     echo ""
-    echo -e "  Image:        ${CYAN}${RUNNING_IMAGE}${NC}"
+    echo -e "  Previous:     ${OLD_SHORT:-none}"
+    echo -e "  Now running:  ${CYAN}${RUNNING_SHORT}${NC}"
+    echo -e "  Created:      ${CREATED}"
     echo -e "  Install dir:  ${INSTALL_DIR}"
     echo -e "  CA data:      Preserved (Docker volume 'ca-data')"
     echo ""
-    echo -e "  Your CA configuration, certificates, and keys are untouched."
+    if [[ "$RUNNING_IMAGE_ID" == "$NEW_IMAGE_ID" ]]; then
+        success "Confirmed: container is running the new image."
+    else
+        warn "Container image ID doesn't match pulled image — check 'docker logs affix-ca'."
+    fi
+    echo ""
     echo -e "  Check logs:   ${CYAN}docker logs -f affix-ca${NC}"
     echo ""
     exit 0

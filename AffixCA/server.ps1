@@ -19,9 +19,6 @@ if ($config) {
     Write-Host '[Affix/CA] Not configured — setup wizard will be served.'
 }
 
-# ── Initialize auth store (creates default admin user on first run) ──────────
-Initialize-AuthStore
-
 # ── Bootstrap web server TLS certificate ─────────────────────────────────────
 $webCert = Initialize-WebServerCert
 
@@ -29,6 +26,10 @@ $webCert = Initialize-WebServerCert
 Import-Module Pode
 
 Start-PodeServer -Threads 4 {
+
+    # ── Initialize auth store (runs on every server start/restart) ────────
+    . /app/shared/scripts/Common-Functions.ps1
+    Initialize-AuthStore
 
     Add-PodeEndpoint -Address '*' -Port 8443 -Protocol Https -Name 'HTTPS' `
         -Certificate $webCert.Cert -CertificateKey $webCert.Key

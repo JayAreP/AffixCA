@@ -80,6 +80,11 @@ Add-PodeRoute -Method 'Get' -Path '/api/status' -ScriptBlock {
             }
         }
 
+        # Include parent URL for distributed non-root nodes
+        if ($cfg.parentUrl) {
+            $info.parentUrl = $cfg.parentUrl
+        }
+
         # Set top-level cert info from root tier (or first available)
         $primaryTier = if ('root' -in $cfg.roles) { 'root' } else { $cfg.roles[0] }
         $primary = $info.tiers[$primaryTier]

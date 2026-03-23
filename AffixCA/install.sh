@@ -15,6 +15,7 @@ set -euo pipefail
 # ── Defaults ─────────────────────────────────────────────────────────────────
 INSTALL_DIR="/opt/affix-ca"
 CA_PORT="443"
+CA_HTTP_PORT="80"
 CA_PASS=""
 IMAGE="ghcr.io/jayarep/affix-ca:latest"
 
@@ -167,6 +168,7 @@ services:
     hostname: affix-ca
     ports:
       - "${CA_PORT}:8443"
+      - "${CA_HTTP_PORT}:8080"
     volumes:
       - ca-data:/ca
     secrets:

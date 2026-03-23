@@ -1,48 +1,98 @@
 # Affix/CA
 
-A modular, self-hosted **Public Key Infrastructure (PKI)** platform delivered as a single Docker container. Built on PowerShell 7 + PODE + OpenSSL.
+A modular, self-hosted **Public Key Infrastructure (PKI)** platform delivered as a single Docker container. Built on PowerShell 7 + Pode + OpenSSL.
 
-Supports three-tier PKI (Root → Intermediate → Issuing CA) in either **standalone** or **distributed** mode. Includes a full web UI for setup, certificate issuance, revocation, CRL management, and trust chain distribution.
+Supports three-tier PKI (Root → Intermediate → Issuing CA) in either **standalone** or **distributed** mode. Includes a full web UI for setup, certificate management, CRL distribution, and web server TLS management.
 
 ---
 
 ## Table of Contents
 
 1. [Quick Start](#quick-start)
-2. [First-Run Setup Wizard](#first-run-setup-wizard)
-3. [Deploying Multiple Instances](#deploying-multiple-instances)
-4. [Factory Reset](#factory-reset)
-5. [Certificate Templates](#certificate-templates)
-6. [API Reference](#api-reference)
-7. [Ports & Volumes](#ports--volumes)
+2. [Linux Install (One-Liner)](#linux-install)
+3. [First-Run Setup Wizard](#first-run-setup-wizard)
+4. [Web Server TLS](#web-server-tls)
+5. [Deploying Multiple Instances](#deploying-multiple-instances)
+6. [Factory Reset](#factory-reset)
+7. [Certificate Templates](#certificate-templates)
+8. [API Reference](#api-reference)
+9. [Ports & Volumes](#ports--volumes)
+10. [Publishing](#publishing)
 
 ---
 
 ## Quick Start
 
+### Development (Mac / Windows)
+
 ```powershell
 # Clone / navigate to the project directory
-cd affixCA
+cd AffixCA
 
-# Build images, generate secrets, and start the stack
+# Build image and start the container
 .\build.ps1
 ```
 
 `build.ps1` does everything automatically:
 
-1. Generates a random 255-character passphrase → `secrets/ca-pass.txt`
+1. Generates a random passphrase → `secrets/ca-pass.txt`
 2. Copies `.env.example` → `.env` if it doesn't exist yet
-3. Builds the base Docker image (PowerShell 7 + PODE + OpenSSL)
-4. Builds the `affix-ca` application image
-5. Starts the container via `docker-compose`
+3. Builds the Docker image (Debian + PowerShell 7 + Pode + OpenSSL)
+4. Starts the container via `docker compose`
 
-Once it completes, open **http://localhost:8080** (or whatever port is set in `.env`).
+Once it completes, open **https://localhost** (or whatever port is set in `.env`).
+
+> The container serves HTTPS using a self-signed certificate on first run. Your browser will show a certificate warning — this is expected.
+
+### Docker Compose
+
+```powershell
+docker compose up --build -d
+```
+
+---
+
+## Linux Install
+
+For production Linux servers (Ubuntu/Debian, RHEL/CentOS/Fedora/Rocky/AlmaLinux):
+
+```bash
+sudo bash install.sh
+```
+
+The installer:
+
+1. Installs Docker Engine + Compose plugin (if not present)
+2. Creates `/opt/affix-ca` with secrets and a `docker-compose.yml`
+3. Registers a `affix-ca.service` systemd unit
+4. Pulls the image from GHCR and starts the container
+
+Options:
+
+```bash
+sudo bash install.sh --port 443 --dir /opt/affix-ca --pass "my-secret-passphrase"
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--port` | `443` | Host port to map to the container |
+| `--dir` | `/opt/affix-ca` | Install directory |
+| `--pass` | *(random)* | CA key passphrase (auto-generated if omitted) |
+
+After install, manage the service with:
+
+```bash
+systemctl start   affix-ca
+systemctl stop    affix-ca
+systemctl restart affix-ca
+docker logs -f affix-ca
+```
 
 ---
 
 ## First-Run Setup Wizard
 
-The first time you visit the URL, the server has no `config.json` and automatically redirects to the setup wizard. Work through the 7 steps:
+The first time you visit the URL, the server has no `config.json` and automatically redirects to the setup wizard. Work through the 8 steps:
 
 | Step | What you configure |
 |---|---|
@@ -51,10 +101,15 @@ The first time you visit the URL, the server has no `config.json` and automatica
 | 3 · Parent CA | URL of the parent CA to submit a CSR to (distributed non-root only) |
 | 4 · Identity (DN) | Country, State, Locality, Organization, Common Name |
 | 5 · Key Algorithm | RSA-2048, RSA-4096, ECDSA-P-256, ECDSA-P-384 |
-| 6 · CRL Settings | CRL validity period in days |
+| 6 · URLs | CDP, AIA, and OCSP distribution point URLs |
 | 7 · Templates | Which certificate types this issuing CA can issue |
+| 8 · Review | Review all settings and set the admin password |
 
-After confirming, the ceremony runs (10–20 seconds), `config.json` is written to the persistent volume, and the dashboard loads.
+After confirming, the ceremony runs, `config.json` is written to the persistent volume, and you're redirected to the login page.
+
+### Default credentials
+
+The setup wizard prompts you to set an admin password. If you skip it, the default credentials are `admin` / `admin`. **Change this immediately.**
 
 ### Recommended settings for a standalone deployment
 
@@ -65,19 +120,33 @@ After confirming, the ceremony runs (10–20 seconds), `config.json` is written 
 
 ---
 
+## Web Server TLS
+
+The container always serves HTTPS (port 8443 internally). On first run, it generates a self-signed certificate for the web server automatically.
+
+To replace it with a CA-signed certificate:
+
+1. Navigate to **Web Server** in the sidebar
+2. Enter the server's hostname and any Subject Alternative Names
+3. Click **Generate CSR**
+4. Either:
+   - **Self-Sign** — use the CA itself to sign the web server cert (convenient for internal use)
+   - **Copy/Download** the CSR, submit it to an external CA, and paste the signed certificate back
+5. The server restarts automatically with the new certificate
+
+---
+
 ## Deploying Multiple Instances
 
-Each container is a self-contained CA node. Instances communicate over HTTP — a child CA submits a CSR to its parent's `/api/sign-csr` endpoint during setup.
+Each container is a self-contained CA node. Instances communicate over HTTPS — a child CA submits a CSR to its parent's `/api/sign-csr` endpoint during setup.
 
 ### Example: 3-tier distributed PKI (4 containers)
-
-Create a `docker-compose.multi.yml` alongside the default one:
 
 ```yaml
 services:
   root-ca:
-    image: affix-ca:latest
-    ports: ["8080:8080"]
+    image: ghcr.io/jayarep/affix-ca:latest
+    ports: ["8443:8443"]
     volumes: ["root-ca-data:/ca"]
     secrets: ["root_pass"]
     environment:
@@ -86,8 +155,8 @@ services:
     restart: unless-stopped
 
   policy-ca:
-    image: affix-ca:latest
-    ports: ["8081:8080"]
+    image: ghcr.io/jayarep/affix-ca:latest
+    ports: ["8444:8443"]
     volumes: ["policy-ca-data:/ca"]
     secrets: ["policy_pass"]
     environment:
@@ -97,8 +166,8 @@ services:
     restart: unless-stopped
 
   issuing-ca-1:
-    image: affix-ca:latest
-    ports: ["8082:8080"]
+    image: ghcr.io/jayarep/affix-ca:latest
+    ports: ["8445:8443"]
     volumes: ["issuing-1-data:/ca"]
     secrets: ["issuing_pass"]
     environment:
@@ -108,8 +177,8 @@ services:
     restart: unless-stopped
 
   issuing-ca-2:
-    image: affix-ca:latest
-    ports: ["8083:8080"]
+    image: ghcr.io/jayarep/affix-ca:latest
+    ports: ["8446:8443"]
     volumes: ["issuing-2-data:/ca"]
     secrets: ["issuing_pass"]
     environment:
@@ -138,32 +207,32 @@ secrets:
 ```
 
 ```powershell
-docker-compose -f docker-compose.multi.yml up -d
+docker compose -f docker-compose.multi.yml up -d
 ```
 
 ### Setup order (must follow this sequence)
 
-**Step 1 — Root CA** → http://localhost:8080
+**Step 1 — Root CA** → https://localhost:8443
 - Mode: Distributed
 - Role: Root
 - Key: RSA-4096, 10957 days
 - No parent URL
 
-**Step 2 — Policy/Intermediate CA** → http://localhost:8081
+**Step 2 — Policy/Intermediate CA** → https://localhost:8444
 - Mode: Distributed
 - Role: Intermediate
-- Parent URL: `http://root-ca:8080`
+- Parent URL: `https://root-ca:8443`
 - Click "Test Connection" — must succeed before proceeding
 - Key: RSA-4096 or ECDSA-P-384, 5475 days
 
-**Step 3 — Issuing CA 1** → http://localhost:8082
+**Step 3 — Issuing CA 1** → https://localhost:8445
 - Mode: Distributed
 - Role: Issuing
-- Parent URL: `http://policy-ca:8081`
+- Parent URL: `https://policy-ca:8443`
 - Key: ECDSA-P-384, 3652 days
 - Select templates
 
-**Step 4 — Issuing CA 2** → http://localhost:8083
+**Step 4 — Issuing CA 2** → https://localhost:8446
 - Same as Issuing CA 1 — independent node, separate volume, same trust chain
 
 ### How instances connect
@@ -171,20 +240,18 @@ docker-compose -f docker-compose.multi.yml up -d
 - During wizard setup, the child CA generates a key pair and CSR, POSTs it to `POST /api/sign-csr` on the parent, and stores the returned certificate locally.
 - After init, no ongoing communication between tiers is required. Each issuing CA holds a copy of the full trust chain.
 - The parent URL is stored in the child's `config.json` for reference but is not polled at runtime.
-- Containers must be on the same Docker network (or reachable by hostname/IP) **only during the setup ceremony**.
+- Containers must be reachable by hostname/IP **only during the setup ceremony**.
 
 ### Scaling issuing CAs
 
 You can run as many issuing CA instances as needed — add more services to the compose file with unique ports and volumes. Each one goes through the same setup ceremony pointing at the same policy CA. There is no shared state between issuing CAs; they operate independently.
-
-Put a load balancer (Nginx, HAProxy, Traefik) in front of multiple issuing CAs to distribute certificate issuance requests.
 
 ### Root CA offline (air-gap) best practice
 
 Once the intermediate CA is signed, the root CA can be stopped and kept offline:
 
 ```powershell
-docker-compose stop root-ca
+docker compose stop root-ca
 ```
 
 Bring it back only to sign a new intermediate CA or regenerate root CRLs.
@@ -198,8 +265,8 @@ Bring it back only to sign a new intermediate CA or regenerate root CRLs.
 Stop the container and remove its data volume:
 
 ```powershell
-docker-compose down
-docker volume rm affixca_<service-name>-data
+docker compose down
+docker volume rm affix-ca_ca-data
 ```
 
 On next start the setup wizard will appear again.
@@ -241,6 +308,8 @@ To skip the confirmation prompt (e.g. in automation):
 | CA private keys | Yes (volume removed) |
 | Issued certificates | Yes (volume removed) |
 | `config.json` | Yes (volume removed) |
+| `auth.json` | Yes (volume removed) |
+| Web server cert/key | Yes (volume removed) |
 | `secrets/ca-pass.txt` | Yes (regenerated) |
 | Docker images | No (unless `-RemoveImages`) |
 | `.env` | No |
@@ -268,6 +337,16 @@ Templates define what kind of end-entity certificate an issuing CA can sign. Sel
 
 ## API Reference
 
+### Authentication
+
+All API endpoints (except `/api/health`, `/api/setup/status`, and public CRL/chain endpoints) require a Bearer token:
+
+```
+Authorization: Bearer <token>
+```
+
+Obtain a token via `POST /api/auth/login` with `{ "username": "...", "password": "..." }`.
+
 ### Health & Status
 
 ```
@@ -275,7 +354,7 @@ GET /api/health
 → { "status": "ok", "initialized": true|false }
 
 GET /api/status
-→ { "roles": [...], "standalone": true, "caName": "...", "stats": { "total": 42, "valid": 40, "revoked": 2 }, "tiers": {...} }
+→ { "roles": [...], "standalone": true, "caName": "...", "stats": {...}, "tiers": {...} }
 ```
 
 ### Setup
@@ -315,6 +394,14 @@ GET  /api/crl/info           CRL metadata (last generated, next update, entries)
 POST /api/crl/regenerate     Force CRL regeneration
 ```
 
+### Web Server Certificate
+
+```
+GET  /api/webserver/cert     Current web server certificate info
+POST /api/webserver/csr      Generate a new CSR for the web server
+POST /api/webserver/install  Install a signed certificate (restarts server)
+```
+
 ---
 
 ## Ports & Volumes
@@ -323,7 +410,7 @@ POST /api/crl/regenerate     Force CRL regeneration
 
 | Setting | Default | Override |
 |---|---|---|
-| Web UI + API | `8080` | Set `CA_PORT=9000` in `.env` |
+| Web UI + API (HTTPS) | `443` (host) → `8443` (container) | Set `CA_PORT=8443` in `.env` |
 
 ### Volume
 
@@ -332,6 +419,10 @@ All CA data is stored in the `/ca` mount inside the container:
 ```
 /ca/
 ├── config.json          Instance configuration
+├── auth.json            User accounts and credentials
+├── webserver/           Web server TLS cert and key
+│   ├── server.key
+│   └── server.crt
 ├── root/                Root CA keys, certs, CRL, database
 ├── intermediate/        Intermediate CA keys, certs, CRL, database
 └── issuing/
@@ -347,4 +438,16 @@ Private keys are encrypted with the passphrase from `secrets/ca-pass.txt` and ne
 
 | File | Purpose |
 |---|---|
-| `secrets/ca-pass.txt` | Random 255-char passphrase used to encrypt all CA private keys. Generated by `build.ps1`. Never commit this file. |
+| `secrets/ca-pass.txt` | Random passphrase used to encrypt all CA private keys. Generated by `build.ps1` or `install.sh`. Never commit this file. |
+
+---
+
+## Publishing
+
+Build and push a multi-platform image (linux/amd64 + linux/arm64) to GHCR:
+
+```powershell
+.\publishContainer.ps1 -GitHubUser <username> -Token <ghcr-pat> -ImageName affix-ca
+```
+
+Requires a GitHub Personal Access Token (Classic) with `write:packages` scope.

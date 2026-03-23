@@ -30,8 +30,35 @@ Import-Module Pode
 
 Start-PodeServer -Threads 4 {
 
-    Add-PodeEndpoint -Address '*' -Port 8443 -Protocol Https `
+    Add-PodeEndpoint -Address '*' -Port 8443 -Protocol Https -Name 'HTTPS' `
         -Certificate $webCert.Cert -CertificateKey $webCert.Key
+
+    # ── HTTP endpoint for public PKI distribution (CRL, AIA, chain) ────────
+    Add-PodeEndpoint -Address '*' -Port 8080 -Protocol Http -Name 'HTTP'
+
+    # ── Restrict HTTP to public PKI paths only ─────────────────────────────
+    Add-PodeMiddleware -Name 'HttpPkiOnly' -ScriptBlock {
+        $endpoint = $WebEvent.Endpoint.Name
+        if ($endpoint -eq 'HTTP') {
+            $path = $WebEvent.Path
+            if (-not $path) { $path = $WebEvent.Request.Url.AbsolutePath }
+            if (-not $path) { $path = '/' }
+
+            # Only allow public PKI endpoints over HTTP
+            if ($path -eq '/api/health' -or
+                $path -like '/api/chain*' -or
+                $path -like '/api/crl/*' -or
+                $path -like '/api/ocsp*') {
+                return $true
+            }
+
+            # Redirect everything else to HTTPS
+            $reqHost = $WebEvent.Request.Host -replace ':\d+$', ''
+            Move-PodeResponseUrl -Url "https://${reqHost}:8443${path}"
+            return $false
+        }
+        return $true
+    }
 
     # ── Authentication (must be registered before routes) ────────────────────
     Register-PodeAuth
@@ -81,5 +108,5 @@ Start-PodeServer -Threads 4 {
     New-PodeLoggingMethod -Terminal | Enable-PodeErrorLogging
     New-PodeLoggingMethod -Terminal | Enable-PodeRequestLogging
 
-    Write-Host "[Affix/CA] PODE server running on :8443 (HTTPS)"
+    Write-Host "[Affix/CA] PODE server running on :8443 (HTTPS) + :8080 (HTTP/PKI-only)"
 }

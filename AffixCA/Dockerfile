@@ -68,7 +68,7 @@ COPY routes/                 /app/routes/
 # ── Unified server entrypoint ────────────────────────────────────────────────
 COPY server.ps1              /app/server.ps1
 
-EXPOSE 8443
+EXPOSE 8443 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -skf https://localhost:8443/api/health || exit 1

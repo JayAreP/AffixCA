@@ -13,10 +13,23 @@ $config = Get-InstanceConfig
 
 if ($config) {
     $roles = @($config.roles)
-    Write-Host "[Affix/CA] Roles: $($roles -join ', ') | Standalone: $($config.standalone)"
+    Write-Log -Category 'system' -Message "Roles: $($roles -join ', ') | Standalone: $($config.standalone)"
+
+    # Apply custom DNS servers if configured
+    if ($config.dnsServers) {
+        try {
+            $dnsServers = ($config.dnsServers -split '[,;\s]+') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+            if ($dnsServers.Count -gt 0) {
+                $dnsServers | ForEach-Object { "nameserver $_" } | Set-Content '/etc/resolv.conf' -Force
+                Write-Log -Category 'system' -Message "DNS servers applied: $($dnsServers -join ', ')"
+            }
+        } catch {
+            Write-Log -Category 'system' -Level 'warn' -Message "Could not apply DNS servers: $($_.Exception.Message)"
+        }
+    }
 } else {
     $roles = @()
-    Write-Host '[Affix/CA] Not configured — setup wizard will be served.'
+    Write-Log -Category 'system' -Message 'Not configured — setup wizard will be served.'
 }
 
 # ── Bootstrap web server TLS certificate ─────────────────────────────────────
@@ -29,13 +42,23 @@ Start-PodeServer -Threads 4 {
 
     # ── Initialize auth store (runs on every server start/restart) ────────
     . /app/shared/scripts/Common-Functions.ps1
+    Write-Log -Category 'system' -Message 'Initializing auth store...'
     Initialize-AuthStore
+    Write-Log -Category 'system' -Message 'Auth store ready.'
 
     Add-PodeEndpoint -Address '*' -Port 8443 -Protocol Https -Name 'HTTPS' `
         -Certificate $webCert.Cert -CertificateKey $webCert.Key
 
     # ── HTTP endpoint for public PKI distribution (CRL, AIA, chain) ────────
     Add-PodeEndpoint -Address '*' -Port 8080 -Protocol Http -Name 'HTTP'
+
+    # ── Custom JSON body parser (overrides Pode built-in to avoid 400s) ──
+    Add-PodeBodyParser -ContentType 'application/json' -ScriptBlock {
+        param($body)
+        if ([string]::IsNullOrWhiteSpace($body)) { return @{} }
+        try { return ($body | ConvertFrom-Json) }
+        catch { return @{} }
+    }
 
     # ── Restrict HTTP to public PKI paths only ─────────────────────────────
     Add-PodeMiddleware -Name 'HttpPkiOnly' -ScriptBlock {
@@ -93,18 +116,35 @@ Start-PodeServer -Threads 4 {
         $activeRoles = @($cfg.roles)
 
         if ('root' -in $activeRoles) {
-            Write-Host '[Affix/CA] Loading root CA routes...'
+            Write-Log -Category 'system' -Message 'Loading root CA routes'
             Use-PodeRoutes -Path '/app/routes/root'
         }
 
         if ('intermediate' -in $activeRoles) {
-            Write-Host '[Affix/CA] Loading intermediate CA routes...'
+            Write-Log -Category 'system' -Message 'Loading intermediate CA routes'
             Use-PodeRoutes -Path '/app/routes/intermediate'
         }
 
         if ('issuing' -in $activeRoles) {
-            Write-Host '[Affix/CA] Loading issuing CA routes...'
+            Write-Log -Category 'system' -Message 'Loading issuing CA routes'
             Use-PodeRoutes -Path '/app/routes/issuing'
+        }
+    }
+
+    # ── Refresh chain from parent on startup (for distributed non-root nodes) ──
+    if ($cfg -and $cfg.parentUrl -and $cfg.standalone -ne $true) {
+        try {
+            Write-Log -Category 'system' -Message "Refreshing chain from parent: $($cfg.parentUrl)"
+            $parentChain = Invoke-RestMethod -Uri "$($cfg.parentUrl)/api/chain" `
+                -TimeoutSec 5 -SkipCertificateCheck
+            if ($parentChain.chain) {
+                $chainDir = '/ca/chain'
+                if (-not (Test-Path $chainDir)) { New-Item -ItemType Directory -Path $chainDir -Force | Out-Null }
+                $parentChain.chain | Set-Content "$chainDir/chain.pem" -Force
+                Write-Log -Category 'system' -Message "Chain refreshed ($($parentChain.count) certs from parent)"
+            }
+        } catch {
+            Write-Log -Category 'system' -Level 'warn' -Message "Could not refresh chain from parent: $($_.Exception.Message)"
         }
     }
 
@@ -112,5 +152,5 @@ Start-PodeServer -Threads 4 {
     New-PodeLoggingMethod -Terminal | Enable-PodeErrorLogging
     New-PodeLoggingMethod -Terminal | Enable-PodeRequestLogging
 
-    Write-Host "[Affix/CA] PODE server running on :8443 (HTTPS) + :8080 (HTTP/PKI-only)"
+    Write-Log -Category 'system' -Message 'Pode server running on :8443 (HTTPS) + :8080 (HTTP/PKI-only)'
 }

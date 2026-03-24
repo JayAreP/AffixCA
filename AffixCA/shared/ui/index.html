@@ -8,6 +8,30 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/ui/css/styles.css" />
+  <style>
+    .log-filter-cb { display:inline-flex; align-items:center; gap:5px; cursor:pointer; font-size:12px; user-select:none; }
+    .log-filter-cb input[type=checkbox] { accent-color: var(--cyan); width:14px; height:14px; cursor:pointer; }
+    .log-filter-cb .cb-label { color: var(--text-mid); transition: color .15s; }
+    .log-filter-cb input:checked + .cb-label { color: attr(data-color); font-weight:500; }
+    .log-entry { display:flex; gap:10px; padding:4px 16px; border-bottom:1px solid var(--border1); align-items:baseline; }
+    .log-entry:hover { background:rgba(255,255,255,.02); }
+    .log-ts   { color:var(--text-dim); flex-shrink:0; width:85px; }
+    .log-cat  { flex-shrink:0; width:90px; font-weight:500; text-transform:uppercase; font-size:10px; letter-spacing:.5px; }
+    .log-lvl  { flex-shrink:0; width:44px; font-size:10px; text-transform:uppercase; font-weight:600; }
+    .log-msg  { color:var(--text); flex:1; word-break:break-word; }
+    .log-lvl-info  { color:var(--text-mid); }
+    .log-lvl-warn  { color:var(--amber); }
+    .log-lvl-error { color:var(--red); }
+    .log-lvl-debug { color:var(--text-dim); }
+    .log-cat-system       { color:var(--cyan); }
+    .log-cat-setup        { color:var(--green); }
+    .log-cat-admin        { color:#a78bfa; }
+    .log-cat-signing      { color:var(--amber); }
+    .log-cat-topology     { color:#3b82f6; }
+    .log-cat-auth         { color:#f97316; }
+    .log-cat-certificates { color:#2dd4bf; }
+    .log-cat-errors       { color:var(--red); }
+  </style>
 </head>
 <body>
   <!-- Animated grid background -->
@@ -142,6 +166,22 @@
             <line x1="12" y1="17" x2="12" y2="21"/>
           </svg>
           Web Server
+        </a></li>
+        <li id="nav-topology" style="display:none"><a href="#" data-view="topology" class="nav-link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/>
+            <line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/>
+          </svg>
+          Topology
+        </a></li>
+        <li><a href="#" data-view="logs" class="nav-link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+          Logs
         </a></li>
         <li><a href="#" data-view="admin" class="nav-link">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -462,6 +502,12 @@
               <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
             </svg>
             Copy PEM
+          </button>
+          <button class="btn" id="btn-refresh-chain" title="Re-fetch chain from parent CA">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+            </svg>
+            Refresh from Parent
           </button>
         </div>
 
@@ -806,6 +852,88 @@
         </div>
       </div>
 
+      <!-- ── Topology View ───────────────────────────────────────────── -->
+      <div id="view-topology" class="view">
+        <div class="view-header">
+          <h1 class="view-title">CA Topology</h1>
+          <div class="view-subtitle">Parent and subordinate CA relationships</div>
+        </div>
+
+        <!-- Parent panel -->
+        <div class="panel" id="topology-parent-panel" style="display:none">
+          <div class="panel-hdr">Parent CA &amp; Trust Chain</div>
+          <div class="panel-body" id="topology-parent-body"></div>
+        </div>
+
+        <!-- Subordinates panel -->
+        <div class="panel" id="topology-subs-panel">
+          <div class="panel-hdr">Subordinate CAs</div>
+          <div class="panel-body" id="topology-subs-body">
+            <p class="text-muted">No subordinates have been signed by this CA yet.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Logs View ────────────────────────────────────────────────── -->
+      <div id="view-logs" class="view">
+        <div class="view-header">
+          <h1 class="view-title">Logs</h1>
+          <div class="view-subtitle">Server activity, errors, and audit trail</div>
+        </div>
+
+        <!-- Filters -->
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Filters</span></div>
+          <div class="panel-body">
+            <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start;">
+              <div>
+                <label style="font-size:12px; color:var(--text-mid); display:block; margin-bottom:6px;">Categories</label>
+                <div id="log-cat-filters" style="display:flex; flex-wrap:wrap; gap:8px;">
+                  <label class="log-filter-cb"><input type="checkbox" value="system" checked /><span class="cb-label" data-color="var(--cyan)">System</span></label>
+                  <label class="log-filter-cb"><input type="checkbox" value="setup" checked /><span class="cb-label" data-color="var(--green)">Setup</span></label>
+                  <label class="log-filter-cb"><input type="checkbox" value="admin" checked /><span class="cb-label" data-color="var(--purple, #a78bfa)">Admin</span></label>
+                  <label class="log-filter-cb"><input type="checkbox" value="signing" checked /><span class="cb-label" data-color="var(--amber)">Signing</span></label>
+                  <label class="log-filter-cb"><input type="checkbox" value="topology" checked /><span class="cb-label" data-color="var(--blue, #3b82f6)">Topology</span></label>
+                  <label class="log-filter-cb"><input type="checkbox" value="auth" checked /><span class="cb-label" data-color="var(--orange, #f97316)">Auth</span></label>
+                  <label class="log-filter-cb"><input type="checkbox" value="certificates" checked /><span class="cb-label" data-color="var(--teal, #2dd4bf)">Certificates</span></label>
+                  <label class="log-filter-cb"><input type="checkbox" value="errors" checked /><span class="cb-label" data-color="var(--red)">Errors</span></label>
+                </div>
+              </div>
+              <div>
+                <label style="font-size:12px; color:var(--text-mid); display:block; margin-bottom:6px;">Levels</label>
+                <div id="log-lvl-filters" style="display:flex; flex-wrap:wrap; gap:8px;">
+                  <label class="log-filter-cb"><input type="checkbox" value="info" checked /><span class="cb-label" data-color="var(--text-mid)">Info</span></label>
+                  <label class="log-filter-cb"><input type="checkbox" value="warn" checked /><span class="cb-label" data-color="var(--amber)">Warn</span></label>
+                  <label class="log-filter-cb"><input type="checkbox" value="error" checked /><span class="cb-label" data-color="var(--red)">Error</span></label>
+                  <label class="log-filter-cb"><input type="checkbox" value="debug" /><span class="cb-label" data-color="var(--text-dim)">Debug</span></label>
+                </div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:flex-end; margin-left:auto;">
+                <label class="log-filter-cb" style="white-space:nowrap;">
+                  <input type="checkbox" id="log-auto-refresh" checked />
+                  <span class="cb-label" data-color="var(--cyan)">Auto-refresh (10s)</span>
+                </label>
+                <button class="btn btn-sm" id="btn-logs-refresh" type="button">Refresh</button>
+                <button class="btn btn-sm btn-danger" id="btn-logs-clear" type="button">Clear Logs</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Log entries -->
+        <div class="panel" style="margin-top:16px;">
+          <div class="panel-header">
+            <span class="panel-title">Log Entries</span>
+            <span class="text-muted" id="log-count-label" style="font-size:12px;"></span>
+          </div>
+          <div class="panel-body" style="padding:0;">
+            <div id="log-entries" style="max-height:600px; overflow-y:auto; font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.7;">
+              <p class="text-muted" style="padding:16px;">Loading...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- ── Administration View ──────────────────────────────────────── -->
       <div id="view-admin" class="view">
         <div class="view-header">
@@ -818,6 +946,47 @@
           <div class="panel-header"><span class="panel-title">Current Node Configuration</span></div>
           <div class="panel-body" id="admin-node-info">
             <p class="text-muted">Loading...</p>
+          </div>
+        </div>
+
+        <!-- Editable Settings -->
+        <div class="panel" style="margin-top:20px;">
+          <div class="panel-header"><span class="panel-title">Editable Settings</span></div>
+          <div class="panel-body">
+            <p class="text-muted" style="margin-bottom:16px;">
+              These settings can be updated without re-running the setup wizard. Changes take effect immediately.
+            </p>
+            <div class="form-grid">
+              <div class="form-group" id="admin-parent-url-group" style="display:none;">
+                <label>Parent CA URL</label>
+                <input type="url" id="admin-parent-url" class="input" placeholder="https://root-ca:8443" />
+                <span class="input-hint">URL of the parent CA that signed this node's certificate</span>
+              </div>
+              <div class="form-group">
+                <label>CRL Distribution Point (CDP)</label>
+                <input type="url" id="admin-cdp-url" class="input" placeholder="http://crl.example.com/ca.crl" />
+              </div>
+              <div class="form-group">
+                <label>Authority Information Access (AIA)</label>
+                <input type="url" id="admin-aia-url" class="input" placeholder="http://certs.example.com/ca.crt" />
+              </div>
+              <div class="form-group">
+                <label>OCSP Responder URL</label>
+                <input type="url" id="admin-ocsp-url" class="input" placeholder="http://ocsp.example.com" />
+              </div>
+              <div class="form-group" style="margin-top:8px;">
+                <label>DNS Servers</label>
+                <input type="text" id="admin-dns-servers" class="input" placeholder="10.0.0.1, 10.0.0.2" />
+                <span class="input-hint">Comma-separated DNS server IPs for this CA node to use for name resolution. Applied to the container immediately on save.</span>
+              </div>
+            </div>
+            <button class="btn btn-primary" id="btn-admin-save" style="margin-top:12px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+                <polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+              </svg>
+              Save Changes
+            </button>
           </div>
         </div>
 

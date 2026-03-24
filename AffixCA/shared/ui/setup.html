@@ -686,26 +686,26 @@
     <!-- ================================================================== -->
     <div class="card panel" id="p3">
       <div class="card-head">
-        <div class="card-title">Parent CA Connection</div>
-        <div class="card-desc">
+        <div class="card-title" id="p3-title">Parent CA Connection</div>
+        <div class="card-desc" id="p3-desc">
           This node requires a parent CA to sign its certificate. Provide the URL of the parent CA instance so we can establish the trust chain.
         </div>
       </div>
       <div class="card-body">
         <div class="fg">
           <div class="fgroup">
-            <label>Parent CA URL *</label>
+            <label id="p3-url-label">Parent CA URL *</label>
             <input id="f-parent-url" type="url" placeholder="https://root-ca.example.com:8443" />
-            <span class="hint">The base URL of the parent Affix/CA instance that will sign this CA's certificate</span>
+            <span class="hint" id="p3-url-hint">The base URL of the parent Affix/CA instance that will sign this CA's certificate</span>
           </div>
           <div class="fgroup" style="margin-top:12px;">
-            <label>Parent Admin Username *</label>
+            <label id="p3-user-label">Parent Admin Username *</label>
             <input id="f-parent-user" type="text" placeholder="admin" value="admin" />
           </div>
           <div class="fgroup" style="margin-top:8px;">
-            <label>Parent Admin Password *</label>
+            <label id="p3-pass-label">Parent Admin Password *</label>
             <input id="f-parent-pass" type="password" placeholder="Password for the parent CA admin account" />
-            <span class="hint">Credentials for the parent CA &mdash; required to authorize CSR signing</span>
+            <span class="hint" id="p3-cred-hint">Credentials for the parent CA &mdash; required to authorize CSR signing</span>
           </div>
           <button class="btn btn-test" id="btn-test-conn" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -747,7 +747,7 @@
               </div>
             </div>
             <div style="margin-top:12px; padding:10px; background:rgba(249,115,22,0.08); border:1px solid rgba(249,115,22,0.2); border-radius:8px; color:var(--text-mid); font-size:12px;">
-              <strong style="color:var(--cyan);">Tip:</strong> Make sure the parent CA has completed its own setup before connecting. The parent must be fully initialized with its root certificate generated.
+              <strong style="color:var(--cyan);">Tip:</strong> Make sure the parent CA has completed its own setup before connecting. The parent must be fully initialized with its certificate generated.
             </div>
           </div>
           <div class="conn-result" id="conn-result">
@@ -1353,8 +1353,42 @@
       this.classList.add('sel');
       radio.checked = true;
       distRole = radio.value;
+      updateParentStepLabels();
     });
   });
+
+  // == Update parent step labels based on selected role ========================
+  function updateParentStepLabels() {
+    const title    = document.getElementById('p3-title');
+    const desc     = document.getElementById('p3-desc');
+    const urlLabel = document.getElementById('p3-url-label');
+    const urlHint  = document.getElementById('p3-url-hint');
+    const urlInput = document.getElementById('f-parent-url');
+    const userLbl  = document.getElementById('p3-user-label');
+    const passLbl  = document.getElementById('p3-pass-label');
+    const credHint = document.getElementById('p3-cred-hint');
+    if (!title) return;
+
+    if (distRole === 'intermediate') {
+      title.textContent    = 'Root CA Connection';
+      desc.textContent     = 'An Intermediate CA must be signed by a Root CA. Provide the URL of your Root CA instance so we can submit a CSR and establish the trust chain.';
+      urlLabel.textContent = 'Root CA URL *';
+      urlInput.placeholder = 'https://root-ca.example.com:8443';
+      urlHint.textContent  = 'The base URL of the Root CA that will sign this Intermediate CA\u2019s certificate';
+      userLbl.textContent  = 'Root CA Admin Username *';
+      passLbl.textContent  = 'Root CA Admin Password *';
+      credHint.innerHTML   = 'Credentials for the <strong>Root CA</strong> &mdash; required to authorize CSR signing';
+    } else if (distRole === 'issuing') {
+      title.textContent    = 'Intermediate CA Connection';
+      desc.textContent     = 'An Issuing CA must be signed by an Intermediate CA. Provide the URL of your Intermediate CA instance so we can submit a CSR and establish the trust chain.';
+      urlLabel.textContent = 'Intermediate CA URL *';
+      urlInput.placeholder = 'https://intermediate-ca.example.com:8443';
+      urlHint.textContent  = 'The base URL of the Intermediate CA that will sign this Issuing CA\u2019s certificate';
+      userLbl.textContent  = 'Intermediate CA Admin Username *';
+      passLbl.textContent  = 'Intermediate CA Admin Password *';
+      credHint.innerHTML   = 'Credentials for the <strong>Intermediate CA</strong> &mdash; required to authorize CSR signing';
+    }
+  }
 
   // == Template cards =========================================================
   document.querySelectorAll('#tpl-grid .tpl-card').forEach(card => {
@@ -1522,6 +1556,25 @@
           `CA Name: ${esc(data.caName || data.name || '\u2014')}<br>` +
           `Subject: ${esc(data.subject || '\u2014')}<br>` +
           `Roles: ${esc((data.roles || []).join(', ') || '\u2014')}`;
+
+        // Pre-fill form fields from parent CA settings
+        const ps = data.parentSubject || {};
+        if (ps.o)  document.getElementById('f-org').value     = ps.o;
+        if (ps.c)  document.getElementById('f-country').value = ps.c;
+        if (ps.st) document.getElementById('f-state').value   = ps.st;
+        if (ps.l)  document.getElementById('f-locality').value = ps.l;
+        if (data.cdpUrl)  document.getElementById('f-cdp-url').value  = data.cdpUrl;
+        if (data.aiaUrl)  document.getElementById('f-aia-url').value  = data.aiaUrl;
+        if (data.ocspUrl) document.getElementById('f-ocsp-url').value = data.ocspUrl;
+
+        // Match parent key algorithm
+        if (data.keyAlgo) {
+          const algoRadio = document.querySelector(`input[name="key-algo"][value="${data.keyAlgo}"]`);
+          if (algoRadio) {
+            algoRadio.checked = true;
+            algoRadio.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
       } else {
         result.classList.add('failure');
         document.getElementById('conn-title').textContent = 'Connection Failed';
@@ -1776,27 +1829,65 @@
     }, algo === 'rsa' && param === '4096' ? 3500 : 1800);
 
     try {
-      const res = await fetch('/api/setup/init', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(payload),
-      });
+      let data = null;
+      let initOk = false;
+      try {
+        const res = await fetch('/api/setup/init', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(payload),
+        });
+        if (res.ok) {
+          data = await res.json().catch(() => null);
+          initOk = true;
+        } else {
+          const body = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(body.error || res.statusText);
+        }
+      } catch (fetchErr) {
+        // The server restarts after successful init, which drops the connection.
+        // Network errors (Failed to fetch, connection reset) are expected.
+        if (fetchErr.message && (
+            fetchErr.message.includes('Failed to fetch') ||
+            fetchErr.message.includes('Load failed') ||
+            fetchErr.message.includes('NetworkError') ||
+            fetchErr.message.includes('network') ||
+            fetchErr.message.includes('ECONNRESET') ||
+            fetchErr.message.includes('aborted'))) {
+          logLine('Server is restarting\u2026', 'active');
+          initOk = true;
+        } else {
+          throw fetchErr;
+        }
+      }
+
       clearInterval(ticker);
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(body.error || res.statusText);
+      if (initOk) {
+        // Wait for server to come back up after restart
+        logLine('Waiting for server to come back online\u2026', 'active');
+        let ready = false;
+        for (let attempt = 0; attempt < 30; attempt++) {
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const healthRes = await fetch('/api/health', { signal: AbortSignal.timeout(3000) });
+            if (healthRes.ok) {
+              const health = await healthRes.json();
+              if (health.initialized) { ready = true; break; }
+            }
+          } catch (_) { /* server not yet up */ }
+        }
+        if (!ready) throw new Error('Server did not come back online after initialization.');
+
+        // Complete all log messages
+        while (mi < messages.length) logLine(messages[mi++], 'done');
+        logLine('');
+        logLine('PKI initialization complete.', 'done');
+        sub.textContent = 'All certificates generated and installed.';
+
+        await new Promise(r => setTimeout(r, 900));
+        showSuccess(data || { success: true, mode: deployMode, roles: [distRole] });
       }
-      const data = await res.json();
-
-      // Complete all log messages
-      while (mi < messages.length) logLine(messages[mi++], 'done');
-      logLine('');
-      logLine('PKI initialization complete.', 'done');
-      sub.textContent = 'All certificates generated and installed.';
-
-      await new Promise(r => setTimeout(r, 900));
-      showSuccess(data);
 
     } catch (err) {
       clearInterval(ticker);

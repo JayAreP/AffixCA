@@ -8,6 +8,7 @@ Add-PodeRoute -Method 'Post' -Path '/api/issue' -ScriptBlock {
     . /app/shared/scripts/Common-Functions.ps1
 
     $body    = $WebEvent.Data
+    Write-Log -Category 'certificates' -Message "Issue request: template=$($body.template) cn=$($body.cn)"
     $cfg     = Get-InstanceConfig
     $caDir   = Get-CADir -Tier 'issuing' -Config $cfg
     $cfgPath = Get-ActiveConfigPath -Tier 'issuing' -Config $cfg
@@ -130,9 +131,11 @@ Add-PodeRoute -Method 'Post' -Path '/api/issue' -ScriptBlock {
             template    = $templateId
         }
         if ($keyPem) { $response.privateKey = $keyPem }
+        Write-Log -Category 'certificates' -Message "Issued cert: serial=$serial template=$templateId subject=$($ci.subject)"
         Write-PodeJsonResponse -Value $response
 
     } catch {
+        Write-Log -Category 'certificates' -Level 'error' -Message "Issue failed: $($_.Exception.Message)"
         Set-PodeResponseStatus -Code 500
         Write-PodeJsonResponse -Value @{ error = $_.Exception.Message }
     } finally {

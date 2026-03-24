@@ -169,7 +169,7 @@ function animateCounter(el, target) {
 function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
 
 // ── CA Hierarchy SVG — Dynamic from status.tiers ─────────────────────────────
-function renderHierarchy(status) {
+function renderHierarchy(status, topology) {
   const svg  = document.getElementById('hierarchy-svg');
   const W    = svg.clientWidth || 600;
 
@@ -193,7 +193,70 @@ function renderHierarchy(status) {
   let nodes = [];
   let edges = [];
 
-  if (tiers && Object.keys(tiers).length > 0) {
+  if (topology) {
+    // ── Topology-aware rendering: show real parent → self → subordinates ──
+    let yPos = 30;
+    const yStep = 80;
+    const selfType = roles[0] || 'issuing';
+    const tierOrder = ['root', 'intermediate', 'issuing'];
+    const selfIndex = tierOrder.indexOf(selfType);
+
+    // Ancestor placeholders (dimmed) — use chain cert names and parent health
+    // ancestors[] from the API is ordered: direct parent first, then grandparent, etc.
+    // But we render top-down (root first), so reverse the mapping.
+    const ancestors = topology.ancestors || [];
+    const ancestorCount = selfIndex; // number of tiers above us
+    for (let i = 0; i < ancestorCount; i++) {
+      const isDirectParent = (i === ancestorCount - 1);
+      const reachable = isDirectParent && topology.parent?.reachable;
+      // ancestors are in parent-first order; tier i (from root=0) maps to ancestors[ancestorCount - 1 - i]
+      const ancIdx = ancestorCount - 1 - i;
+      let label = tierOrder[i].charAt(0).toUpperCase() + tierOrder[i].slice(1) + ' CA';
+      if (isDirectParent && topology.parent?.caName) {
+        label = topology.parent.caName;
+      } else if (ancIdx >= 0 && ancIdx < ancestors.length && ancestors[ancIdx]?.cn) {
+        label = ancestors[ancIdx].cn;
+      }
+      nodes.push({
+        id: tierOrder[i], label, sub: isDirectParent ? (reachable ? 'parent · online' : 'parent') : '',
+        x: W / 2, y: yPos, type: tierOrder[i], dimmed: true, parentOnline: reachable,
+      });
+      yPos += yStep;
+    }
+
+    // This node
+    nodes.push({
+      id: 'self', label: status.caName || 'This CA', sub: 'this node',
+      x: W / 2, y: yPos, type: selfType,
+    });
+    yPos += yStep;
+
+    // Subordinates
+    const activeSubs = (topology.subordinates || []).filter(s => s.status === 'active');
+    if (activeSubs.length > 0) {
+      const count = activeSubs.length;
+      activeSubs.forEach((s, idx) => {
+        const xPos = count === 1 ? W / 2 : W * ((idx + 1) / (count + 1));
+        const childTier = selfType === 'root' ? 'intermediate' : 'issuing';
+        nodes.push({
+          id: `sub-${idx}`, label: s.cn || 'Subordinate',
+          sub: `serial: ${(s.serial || '').substring(0, 8)}`,
+          x: xPos, y: yPos, type: childTier,
+        });
+        edges.push(['self', `sub-${idx}`]);
+      });
+      yPos += yStep;
+    }
+
+    // Connect ancestor chain → self
+    const chainNodes = nodes.filter(n => n.dimmed || n.id === 'self');
+    for (let i = 1; i < chainNodes.length; i++) {
+      edges.push([chainNodes[i - 1].id, chainNodes[i].id]);
+    }
+
+    svg.setAttribute('height', yPos - yStep + 60);
+
+  } else if (tiers && Object.keys(tiers).length > 0) {
     // Dynamic layout from tiers
     const tierKeys = Object.keys(tiers).sort((a, b) => parseInt(a) - parseInt(b));
     let yPos = 30;
@@ -269,37 +332,6 @@ function renderHierarchy(status) {
     }
     if (hasIntermediate && hasIssuing) {
       nodes.filter(n => ['tls','codesign','smime'].includes(n.type)).forEach(n => edges.push(['intermediate', n.id]));
-    }
-
-    svg.setAttribute('height', yPos - yStep + 60);
-  } else if (!status.standalone && roles.length === 1) {
-    // Distributed single-role: show position in hierarchy
-    const selfType = roles[0] || 'issuing';
-    const tierOrder = ['root', 'intermediate', 'issuing'];
-    const selfIndex = tierOrder.indexOf(selfType);
-    let yPos = 30;
-    const yStep = 80;
-
-    // Show ancestor tiers as dimmed placeholders
-    for (let i = 0; i < selfIndex; i++) {
-      nodes.push({
-        id: tierOrder[i], label: tierOrder[i].charAt(0).toUpperCase() + tierOrder[i].slice(1) + ' CA',
-        sub: status.parentUrl && i === selfIndex - 1 ? 'parent' : '',
-        x: W / 2, y: yPos, type: tierOrder[i], dimmed: true,
-      });
-      yPos += yStep;
-    }
-
-    // This node (highlighted)
-    nodes.push({
-      id: 'self', label: status.caName || 'This CA', sub: 'this node',
-      x: W / 2, y: yPos, type: selfType,
-    });
-    yPos += yStep;
-
-    // Connect ancestor chain
-    for (let i = 1; i < nodes.length; i++) {
-      edges.push([nodes[i - 1].id, nodes[i].id]);
     }
 
     svg.setAttribute('height', yPos - yStep + 60);
@@ -573,6 +605,11 @@ function applyStatus(s) {
   document.getElementById('nav-sign-csr').classList.toggle ('nav-hidden', !hasSignCSR);
   document.getElementById('nav-ceremony').classList.toggle ('nav-hidden', online);
 
+  // Show Topology nav for all distributed (non-standalone) nodes
+  const hasTopology = !s.standalone;
+  const topoNav = document.getElementById('nav-topology');
+  if (topoNav) topoNav.style.display = hasTopology ? '' : 'none';
+
   // Show Users nav for admin users
   const authUser = window.AffixAuth && AffixAuth.getUser();
   const usersNav = document.getElementById('nav-users');
@@ -582,8 +619,11 @@ function applyStatus(s) {
   const banner = document.getElementById('ceremony-banner');
   if (banner) banner.style.display = !online ? 'flex' : 'none';
 
-  // Render hierarchy from tiers data
+  // Render hierarchy — fetch topology first for distributed nodes
   renderHierarchy(s);
+  API.get('/api/topology').then(topo => {
+    if (topo) renderHierarchy(s, topo);
+  }).catch(err => { console.warn('Topology fetch failed:', err); });
 
   // Populate issue profiles from templates
   if (hasIssuing) {
@@ -1128,6 +1168,8 @@ const App = {
     if (viewId === 'users')        loadUsers();
     if (viewId === 'webserver')    loadWebServerCert();
     if (viewId === 'admin')        loadAdminInfo();
+    if (viewId === 'topology')     loadTopology();
+    if (viewId === 'logs')         loadLogs();
   },
 };
 
@@ -1229,6 +1271,25 @@ function wireEvents() {
     }
   });
 
+  // Chain refresh from parent
+  document.getElementById('btn-refresh-chain')?.addEventListener('click', async function() {
+    this.disabled = true;
+    this.textContent = 'Refreshing...';
+    try {
+      const result = await API.post('/api/chain/refresh', {});
+      if (result.success) {
+        Toast.show(result.message || 'Chain refreshed.', 'success');
+        await loadChain();
+      } else {
+        Toast.show(result.error || 'Refresh failed.', 'error');
+      }
+    } catch (e) {
+      Toast.show('Refresh failed: ' + e.message, 'error');
+    }
+    this.disabled = false;
+    this.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Refresh from Parent';
+  });
+
   // Import instruction tabs
   document.querySelectorAll('.import-tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -1289,6 +1350,38 @@ function wireEvents() {
     }
   });
 
+  // Logs: set up filter/refresh/clear listeners
+  setupLogListeners();
+
+  // Admin: save settings button
+  document.getElementById('btn-admin-save')?.addEventListener('click', async function() {
+    this.disabled = true;
+    this.textContent = 'Saving...';
+    try {
+      const payload = {
+        cdpUrl:     document.getElementById('admin-cdp-url')?.value?.trim() ?? '',
+        aiaUrl:     document.getElementById('admin-aia-url')?.value?.trim() ?? '',
+        ocspUrl:    document.getElementById('admin-ocsp-url')?.value?.trim() ?? '',
+        dnsServers: document.getElementById('admin-dns-servers')?.value?.trim() ?? '',
+      };
+      const parentUrlEl = document.getElementById('admin-parent-url');
+      if (parentUrlEl && parentUrlEl.closest('.form-group').style.display !== 'none') {
+        payload.parentUrl = parentUrlEl.value.trim();
+      }
+      const result = await API.post('/api/admin/update', payload);
+      if (result.success) {
+        Toast.show(result.message || 'Settings saved.', 'success');
+        await loadAdminInfo();
+      } else {
+        Toast.show(result.error || 'Save failed.', 'error');
+      }
+    } catch (e) {
+      Toast.show('Save failed: ' + e.message, 'error');
+    }
+    this.disabled = false;
+    this.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save Changes';
+  });
+
   // Admin: decommission button
   document.getElementById('btn-decommission')?.addEventListener('click', async function() {
     const confirm = document.getElementById('admin-confirm-text')?.value;
@@ -1315,6 +1408,102 @@ function wireEvents() {
   });
 }
 
+// ── Topology ──────────────────────────────────────────────────────────────────
+async function loadTopology() {
+  try {
+    const data = await API.get('/api/topology');
+
+    // Parent panel
+    const parentPanel = document.getElementById('topology-parent-panel');
+    const parentBody  = document.getElementById('topology-parent-body');
+    const ancestors = data.ancestors || [];
+    if (data.parent || ancestors.length > 0) {
+      parentPanel.style.display = '';
+      let html = '<div class="kv-grid" style="grid-template-columns:140px 1fr">';
+      if (data.parent) {
+        const dot = data.parent.reachable
+          ? '<span class="status-dot online"></span>'
+          : '<span class="status-dot offline"></span>';
+        const statusText = data.parent.reachable ? 'Reachable' : 'Unreachable';
+        html += `
+          <span class="kv-label">Parent CA</span>
+          <span class="kv-value">${dot} ${data.parent.caName || 'Unknown'} — ${statusText}</span>
+          <span class="kv-label">URL</span>
+          <span class="kv-value"><code>${data.parent.url}</code></span>`;
+      }
+      // Show full ancestor chain from chain certs (parent-first order)
+      if (ancestors.length > 0) {
+        // Reverse to show root-first
+        const rootFirst = [...ancestors].reverse();
+        html += `<span class="kv-label">Trust Chain</span><span class="kv-value">`;
+        html += rootFirst.map((a, i) => `${'\u00A0'.repeat(i * 2)}${i > 0 ? '\u2514\u2500 ' : ''}${escHtml(a.cn)}`).join('<br>');
+        html += `</span>`;
+      }
+      html += '</div>';
+      parentBody.innerHTML = html;
+    } else {
+      parentPanel.style.display = 'none';
+    }
+
+    // Subordinates panel
+    const subsBody = document.getElementById('topology-subs-body');
+    const subs = data.subordinates || [];
+    if (subs.length === 0) {
+      subsBody.innerHTML = '<p class="text-muted">No subordinates have been signed by this CA yet.</p>';
+      return;
+    }
+
+    let html = `<table class="data-table"><thead><tr>
+      <th>Common Name</th><th>Serial</th><th>Signed</th><th>Expires</th><th>Status</th><th>Actions</th>
+    </tr></thead><tbody>`;
+
+    for (const s of subs) {
+      const statusCls = s.status === 'revoked' ? 'badge-red' : 'badge-green';
+      const statusLabel = s.status === 'revoked' ? 'Revoked' : 'Active';
+      const signed = s.signedAt ? new Date(s.signedAt).toLocaleDateString() : '—';
+      const expires = s.notAfter || '—';
+      const actions = s.status === 'active'
+        ? `<button class="btn btn-sm btn-danger" onclick="evictSubordinate('${s.serial}','${(s.cn||'').replace(/'/g,"\\'")}')">Evict</button>`
+        : `<span class="text-muted">${s.reason || 'revoked'}</span>`;
+
+      html += `<tr>
+        <td><strong>${s.cn || s.subject}</strong></td>
+        <td><code>${s.serial}</code></td>
+        <td>${signed}</td>
+        <td>${expires}</td>
+        <td><span class="badge ${statusCls}">${statusLabel}</span></td>
+        <td>${actions}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    subsBody.innerHTML = html;
+  } catch (e) {
+    console.error('Topology load failed:', e);
+  }
+}
+
+async function evictSubordinate(serial, cn) {
+  const confirmed = confirm(
+    `Evict subordinate CA "${cn}"?\n\nThis will REVOKE its certificate and update the CRL. The subordinate will no longer be trusted.\n\nThis action cannot be undone.`
+  );
+  if (!confirmed) return;
+
+  try {
+    const result = await API.post('/api/subordinates/evict', {
+      serial: serial,
+      reason: 'cessationOfOperation'
+    });
+    if (result.success) {
+      Toast.show(result.message || 'Subordinate evicted.', 'success');
+      await loadTopology();
+    } else {
+      Toast.show(result.error || 'Eviction failed.', 'error');
+    }
+  } catch (e) {
+    Toast.show(e.message || 'Eviction failed.', 'error');
+  }
+}
+
 // ── Administration ────────────────────────────────────────────────────────────
 async function loadAdminInfo() {
   const container = document.getElementById('admin-node-info');
@@ -1337,14 +1526,119 @@ async function loadAdminInfo() {
       ['Valid From', data.notBefore || '\u2014'],
       ['Valid Until', data.notAfter || '\u2014'],
       ['Parent URL', data.parentUrl || 'None (Root)'],
+      ['DNS Servers', data.dnsServers || 'System default'],
       ['Configured At', data.createdAt ? new Date(data.createdAt).toLocaleString() : '\u2014'],
     ];
     container.innerHTML = `<table class="table"><tbody>${rows.map(([k,v]) =>
       `<tr><td style="color:var(--text-mid); width:160px; white-space:nowrap;">${escHtml(k)}</td><td style="font-family:'JetBrains Mono',monospace; font-size:12px;">${escHtml(v)}</td></tr>`
     ).join('')}</tbody></table>`;
+
+    // Populate editable settings fields
+    const parentGroup = document.getElementById('admin-parent-url-group');
+    if (parentGroup) {
+      // Show parent URL field only for non-root distributed nodes
+      if (!data.standalone && data.parentUrl) {
+        parentGroup.style.display = '';
+        document.getElementById('admin-parent-url').value = data.parentUrl || '';
+      } else {
+        parentGroup.style.display = 'none';
+      }
+    }
+    document.getElementById('admin-cdp-url').value      = data.cdpUrl      || '';
+    document.getElementById('admin-aia-url').value      = data.aiaUrl      || '';
+    document.getElementById('admin-ocsp-url').value     = data.ocspUrl     || '';
+    document.getElementById('admin-dns-servers').value   = data.dnsServers  || '';
+
   } catch (e) {
     container.innerHTML = `<p class="text-muted">Failed to load: ${escHtml(e.message)}</p>`;
   }
+}
+
+// ── Logs ──────────────────────────────────────────────────────────────────────
+let logsRefreshTimer = null;
+
+function getLogFilters() {
+  const cats = [...document.querySelectorAll('#log-cat-filters input:checked')].map(c => c.value);
+  const lvls = [...document.querySelectorAll('#log-lvl-filters input:checked')].map(c => c.value);
+  return { cats, lvls };
+}
+
+async function loadLogs() {
+  const container = document.getElementById('log-entries');
+  const countLabel = document.getElementById('log-count-label');
+  if (!container) return;
+
+  const { cats, lvls } = getLogFilters();
+  const params = new URLSearchParams();
+  if (cats.length > 0 && cats.length < 8) params.set('categories', cats.join(','));
+  if (lvls.length > 0 && lvls.length < 4) params.set('levels', lvls.join(','));
+  params.set('limit', '500');
+
+  try {
+    const data = await API.get(`/api/logs?${params.toString()}`);
+    const entries = data.entries || [];
+    if (countLabel) countLabel.textContent = `${entries.length} entries`;
+
+    if (entries.length === 0) {
+      container.innerHTML = '<p class="text-muted" style="padding:16px;">No log entries.</p>';
+      return;
+    }
+
+    let html = '';
+    for (const e of entries) {
+      const ts = new Date(e.ts);
+      const timeStr = ts.toLocaleTimeString('en-US', { hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
+      const dateStr = ts.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+      html += `<div class="log-entry">
+        <span class="log-ts" title="${escHtml(e.ts)}">${dateStr} ${timeStr}</span>
+        <span class="log-cat log-cat-${escHtml(e.category)}">${escHtml(e.category)}</span>
+        <span class="log-lvl log-lvl-${escHtml(e.level)}">${escHtml(e.level)}</span>
+        <span class="log-msg">${escHtml(e.message)}</span>
+      </div>`;
+    }
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = `<p class="text-muted" style="padding:16px;">Failed to load logs: ${escHtml(e.message)}</p>`;
+  }
+}
+
+function setupLogListeners() {
+  // Filter checkboxes trigger reload
+  document.querySelectorAll('#log-cat-filters input, #log-lvl-filters input').forEach(cb => {
+    cb.addEventListener('change', () => { if (State.activeView === 'logs') loadLogs(); });
+  });
+
+  // Refresh button
+  document.getElementById('btn-logs-refresh')?.addEventListener('click', loadLogs);
+
+  // Clear button
+  document.getElementById('btn-logs-clear')?.addEventListener('click', async () => {
+    if (!confirm('Clear all log entries? This cannot be undone.')) return;
+    try {
+      const result = await API.post('/api/logs/clear', {});
+      if (result.success) {
+        Toast.show('Logs cleared.', 'success');
+        await loadLogs();
+      } else {
+        Toast.show(result.error || 'Clear failed.', 'error');
+      }
+    } catch (e) {
+      Toast.show('Clear failed: ' + e.message, 'error');
+    }
+  });
+
+  // Auto-refresh toggle
+  const autoRefresh = document.getElementById('log-auto-refresh');
+  function updateAutoRefresh() {
+    if (logsRefreshTimer) { clearInterval(logsRefreshTimer); logsRefreshTimer = null; }
+    if (autoRefresh?.checked) {
+      logsRefreshTimer = setInterval(() => {
+        if (State.activeView === 'logs') loadLogs();
+      }, 10_000);
+    }
+  }
+  autoRefresh?.addEventListener('change', updateAutoRefresh);
+  updateAutoRefresh();
 }
 
 // ── Polling ───────────────────────────────────────────────────────────────────

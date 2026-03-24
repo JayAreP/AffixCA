@@ -47,7 +47,7 @@ RUN ARCH=$(dpkg --print-architecture) \
 # ── Install Pode ──────────────────────────────────────────────────────────────
 RUN pwsh -NoProfile -NonInteractive -Command \
     "Set-PSRepository -Name PSGallery -InstallationPolicy Trusted; \
-     Install-Module -Name Pode -Force -Scope AllUsers -MinimumVersion 2.10.0"
+     Install-Module -Name Pode -Force -Scope AllUsers -RequiredVersion 2.12.1"
 
 WORKDIR /app
 

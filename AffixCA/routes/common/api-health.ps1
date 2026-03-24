@@ -8,11 +8,16 @@
 Add-PodeRoute -Method 'Get' -Path '/api/health' -ScriptBlock {
     . /app/shared/scripts/Common-Functions.ps1
     $cfg = Get-InstanceConfig
-    Write-PodeJsonResponse -Value @{
+    $resp = @{
         status      = 'ok'
         initialized = ($null -ne $cfg)
         timestamp   = (Get-Date -Format 'o')
     }
+    if ($cfg) {
+        $resp.caName = $cfg.caName
+        $resp.roles  = @($cfg.roles)
+    }
+    Write-PodeJsonResponse -Value $resp
 }
 
 Add-PodeRoute -Method 'Get' -Path '/api/status' -ScriptBlock {
@@ -38,6 +43,12 @@ Add-PodeRoute -Method 'Get' -Path '/api/status' -ScriptBlock {
         $info.standalone = ($cfg.standalone -eq $true)
         $info.caName     = $cfg.caName ?? 'Affix/CA'
         $info.templates  = @($cfg.templates ?? @())
+        $info.keyAlgo    = $cfg.keyAlgo ?? 'rsa'
+        $info.keyParam   = $cfg.keyParam ?? '4096'
+        $info.cdpUrl     = $cfg.cdpUrl ?? ''
+        $info.aiaUrl     = $cfg.aiaUrl ?? ''
+        $info.ocspUrl    = $cfg.ocspUrl ?? ''
+        $info.subject    = $cfg.subject ?? @{}
 
         # Build tier info for each role
         foreach ($role in $cfg.roles) {
@@ -60,7 +71,7 @@ Add-PodeRoute -Method 'Get' -Path '/api/status' -ScriptBlock {
                         fingerprint    = $ci.fingerprint
                     }
                 } catch {
-                    Write-PodeHost "Status error for tier $role : $_"
+                    Write-Log -Category 'errors' -Level 'error' -Message "Status error for tier $role : $_"
                 }
             }
             $info.tiers[$role] = $tierInfo

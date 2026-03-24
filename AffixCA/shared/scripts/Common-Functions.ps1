@@ -2,6 +2,102 @@
 #  Common-Functions.ps1  ·  Shared PowerShell library for Affix/CA
 # =============================================================================
 
+#region ── Logging ─────────────────────────────────────────────────────────────
+
+$script:LogFile = '/ca/logs/server.log'
+$script:LogMaxBytes = 5 * 1024 * 1024   # 5 MB — rotate when exceeded
+
+function Write-Log {
+    <#
+    .SYNOPSIS
+        Structured logging to /ca/logs/server.log + Write-PodeHost for Docker logs.
+        Categories: system, setup, admin, signing, topology, auth, certificates, errors
+        Levels: info, warn, error, debug
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Message,
+        [ValidateSet('system','setup','admin','signing','topology','auth','certificates','errors')]
+        [string]$Category = 'system',
+        [ValidateSet('info','warn','error','debug')]
+        [string]$Level = 'info'
+    )
+
+    $entry = @{
+        ts       = (Get-Date -Format 'o')
+        level    = $Level
+        category = $Category
+        message  = $Message
+    } | ConvertTo-Json -Compress
+
+    # Ensure log directory exists
+    $logDir = Split-Path $script:LogFile -Parent
+    if (-not (Test-Path $logDir)) {
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    }
+
+    # Rotate if oversized
+    if ((Test-Path $script:LogFile) -and (Get-Item $script:LogFile).Length -gt $script:LogMaxBytes) {
+        $rotated = "$($script:LogFile).1"
+        if (Test-Path $rotated) { Remove-Item $rotated -Force }
+        Rename-Item $script:LogFile $rotated -Force
+    }
+
+    # Append — use mutex to avoid partial writes from Pode runspaces
+    try {
+        [System.IO.File]::AppendAllText($script:LogFile, "$entry`n")
+    } catch {
+        # Last resort: skip file write if locked
+    }
+
+    # Also emit to Docker logs via Write-PodeHost (if inside Pode) or Write-Host
+    $prefix = "[$($Category.ToUpper())] [$Level]"
+    $logLine = "$prefix $Message"
+    try { Write-PodeHost $logLine } catch { Write-Host $logLine }
+}
+
+function Get-LogEntries {
+    <#
+    .SYNOPSIS
+        Read log entries, optionally filtering by category / level / since timestamp.
+        Returns newest-first.
+    #>
+    param(
+        [string[]]$Categories,
+        [string[]]$Levels,
+        [datetime]$Since,
+        [int]$Limit = 500
+    )
+
+    $results = @()
+    $files = @($script:LogFile)
+    $rotated = "$($script:LogFile).1"
+    if (Test-Path $rotated) { $files += $rotated }
+
+    foreach ($f in $files) {
+        if (-not (Test-Path $f)) { continue }
+        $lines = Get-Content $f
+        foreach ($line in $lines) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try {
+                $obj = $line | ConvertFrom-Json
+                if ($Categories -and $Categories.Count -gt 0 -and $obj.category -notin $Categories) { continue }
+                if ($Levels -and $Levels.Count -gt 0 -and $obj.level -notin $Levels) { continue }
+                if ($Since -and [datetime]$obj.ts -lt $Since) { continue }
+                $results += $obj
+            } catch { continue }
+        }
+    }
+
+    # Newest first, limited
+    $results = $results | Sort-Object ts -Descending
+    if ($Limit -gt 0 -and $results.Count -gt $Limit) {
+        $results = $results[0..($Limit - 1)]
+    }
+    return $results
+}
+
+#endregion
+
 #region ── Configuration ────────────────────────────────────────────────────────
 
 function Get-InstanceConfig {
@@ -72,7 +168,7 @@ function Initialize-CADirectories {
     & chmod 700 "$CADir/private"
 
     if (-not (Test-Path "$CADir/db/index.txt"))      { '' | Set-Content "$CADir/db/index.txt" -NoNewline }
-    if (-not (Test-Path "$CADir/db/index.txt.attr"))  { 'unique_subject = yes' | Set-Content "$CADir/db/index.txt.attr" }
+    if (-not (Test-Path "$CADir/db/index.txt.attr"))  { 'unique_subject = no' | Set-Content "$CADir/db/index.txt.attr" }
     if (-not (Test-Path "$CADir/db/serial"))          { '01' | Set-Content "$CADir/db/serial" }
     if (-not (Test-Path "$CADir/db/crlnumber"))       { '01' | Set-Content "$CADir/db/crlnumber" }
 }
@@ -328,8 +424,8 @@ function Invoke-SignCSR {
     if ($ExtFile)    { $opensslArgs += '-extfile';    $opensslArgs += $ExtFile }
     if ($ExtSection) { $opensslArgs += '-extensions'; $opensslArgs += $ExtSection }
 
-    & openssl @opensslArgs
-    if ($LASTEXITCODE -ne 0) { throw "CSR signing failed" }
+    $output = & openssl @opensslArgs 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "CSR signing failed: $output" }
 }
 
 function Revoke-Certificate {
@@ -496,7 +592,13 @@ function Build-FullChainPEM {
         return $chain.TrimEnd()
     }
 
-    return Get-ChainPEM
+    # Distributed: this node's own cert + parent chain
+    $chain = ''
+    $selfCert = '/ca/certs/ca.crt'
+    if (Test-Path $selfCert) { $chain += (Get-Content $selfCert -Raw) + "`n" }
+    $parentChain = Get-ChainPEM
+    if ($parentChain) { $chain += $parentChain + "`n" }
+    return $chain.TrimEnd()
 }
 
 #endregion

@@ -95,3 +95,39 @@ Add-PodeRoute -Method 'Get' -Path '/api/chain/download' -ScriptBlock {
         Write-PodeTextResponse -Value $chainPEM -ContentType 'application/x-pem-file'
     }
 }
+
+Add-PodeRoute -Method 'Post' -Path '/api/chain/refresh' -ScriptBlock {
+    . /app/shared/scripts/Common-Functions.ps1
+    $cfg = Get-InstanceConfig
+    if (-not $cfg) {
+        Set-PodeResponseStatus -Code 400
+        Write-PodeJsonResponse -Value @{ error = 'Not configured.' }
+        return
+    }
+    if (-not $cfg.parentUrl) {
+        Write-PodeJsonResponse -Value @{ success = $true; message = 'No parent — this is a root CA. No chain to refresh.' }
+        return
+    }
+    try {
+        Write-Log -Category 'admin' -Message "Refreshing chain from parent: $($cfg.parentUrl)"
+        $parentChain = Invoke-RestMethod -Uri "$($cfg.parentUrl)/api/chain" `
+            -TimeoutSec 10 -SkipCertificateCheck
+        if ($parentChain.chain) {
+            $chainDir = '/ca/chain'
+            if (-not (Test-Path $chainDir)) { New-Item -ItemType Directory -Path $chainDir -Force | Out-Null }
+            $parentChain.chain | Set-Content "$chainDir/chain.pem" -Force
+            Write-Log -Category 'admin' -Message "Chain refreshed: $($parentChain.count) certs from parent"
+            Write-PodeJsonResponse -Value @{
+                success = $true
+                message = "Chain refreshed from parent ($($parentChain.count) certs)."
+                count   = $parentChain.count
+            }
+        } else {
+            Write-PodeJsonResponse -Value @{ success = $false; error = 'Parent returned empty chain.' }
+        }
+    } catch {
+        Write-Log -Category 'admin' -Level 'error' -Message "Chain refresh failed: $($_.Exception.Message)"
+        Set-PodeResponseStatus -Code 500
+        Write-PodeJsonResponse -Value @{ success = $false; error = $_.Exception.Message }
+    }
+}

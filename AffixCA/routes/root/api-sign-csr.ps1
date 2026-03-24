@@ -8,6 +8,7 @@
 Add-PodeRoute -Method 'Post' -Path '/api/sign-csr' -ScriptBlock {
     . /app/shared/scripts/Common-Functions.ps1
 
+    Write-Log -Category 'signing' -Message "Root sign-csr request received"
     $body = $WebEvent.Data
     $cfg = Get-InstanceConfig
     $caDir = Get-CADir -Tier 'root' -Config $cfg
@@ -16,6 +17,7 @@ Add-PodeRoute -Method 'Post' -Path '/api/sign-csr' -ScriptBlock {
     $certPath = "$caDir/certs/ca.crt"
 
     if (-not (Test-Path $certPath)) {
+        Write-Log -Category 'signing' -Level 'error' -Message "Root CA cert not found at $certPath"
         Set-PodeResponseStatus -Code 503
         Write-PodeJsonResponse -Value @{ error = 'Root CA not initialized.' }
         return
@@ -24,8 +26,10 @@ Add-PodeRoute -Method 'Post' -Path '/api/sign-csr' -ScriptBlock {
     $csrPEM     = $body.csr
     $extProfile = $body.profile ?? 'intermediate_ca_ext'
     $days       = [int]($body.days ?? 5475)
+    Write-Log -Category 'signing' -Message "Root signing: profile=$extProfile days=$days"
 
     if (-not $csrPEM -or -not ($csrPEM -match 'CERTIFICATE REQUEST')) {
+        Write-Log -Category 'signing' -Level 'error' -Message "Invalid CSR submitted to root"
         Set-PodeResponseStatus -Code 400
         Write-PodeJsonResponse -Value @{ error = 'Invalid or missing CSR.' }
         return
@@ -47,6 +51,24 @@ Add-PodeRoute -Method 'Post' -Path '/api/sign-csr' -ScriptBlock {
 
         $certInfo = Get-CertInfo -CertPath $certFile
 
+        # Track subordinate in config
+        if (-not ($cfg.PSObject.Properties.Name -contains 'subordinates')) {
+            $cfg | Add-Member -NotePropertyName 'subordinates' -NotePropertyValue @()
+        }
+        $cn = if ($certInfo.subject -match 'CN\s*=\s*([^,/]+)') { $Matches[1].Trim() } else { $certInfo.subject }
+        $cfg.subordinates = @($cfg.subordinates) + @([PSCustomObject]@{
+            serial      = $certInfo.serial
+            subject     = $certInfo.subject
+            cn          = $cn
+            fingerprint = $certInfo.fingerprint
+            notAfter    = $certInfo.notAfter
+            signedAt    = (Get-Date -Format 'o')
+            profile     = $extProfile
+            status      = 'active'
+        })
+        Save-InstanceConfig -Config $cfg
+        Write-Log -Category 'signing' -Message "Root signed subordinate: $cn (serial=$($certInfo.serial))"
+
         Write-PodeJsonResponse -Value @{
             success     = $true
             serial      = $certInfo.serial
@@ -59,6 +81,7 @@ Add-PodeRoute -Method 'Post' -Path '/api/sign-csr' -ScriptBlock {
 
         Remove-Item $csrFile, $certFile -ErrorAction SilentlyContinue
     } catch {
+        Write-Log -Category 'signing' -Level 'error' -Message "Root sign-csr failed: $($_.Exception.Message)"
         Write-ErrorResponse -Message $_.Exception.Message
     }
 }

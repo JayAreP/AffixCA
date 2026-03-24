@@ -63,6 +63,13 @@ Add-PodeRoute -Method 'Post' -Path '/api/setup/test-parent' -ScriptBlock {
             caName      = $status.caName
             roles       = $status.roles
             subject     = $status.caSubject
+            # Pass parent config so child can inherit defaults
+            parentSubject = $status.subject
+            keyAlgo       = $status.keyAlgo
+            keyParam      = $status.keyParam
+            cdpUrl        = $status.cdpUrl
+            aiaUrl        = $status.aiaUrl
+            ocspUrl       = $status.ocspUrl
         }
     } catch {
         Write-PodeJsonResponse -Value @{
@@ -73,16 +80,21 @@ Add-PodeRoute -Method 'Post' -Path '/api/setup/test-parent' -ScriptBlock {
 }
 
 Add-PodeRoute -Method 'Post' -Path '/api/setup/init' -ScriptBlock {
+  try {
     . /app/shared/scripts/Common-Functions.ps1
+
+    Write-Log -Category 'setup' -Message "=== Init request received ==="
 
     $existing = Get-InstanceConfig
     if ($existing) {
+        Write-Log -Category 'setup' -Message "REJECTED: Already configured"
         Set-PodeResponseStatus -Code 409
         Write-PodeJsonResponse -Value @{ error = 'CA is already configured.' }
         return
     }
 
     $body = $WebEvent.Data
+    Write-Log -Category 'setup' -Message "Mode: $($body.mode) | Role: $($body.role) | ParentUrl: $($body.parentUrl)"
 
     try {
         $mode       = $body.mode ?? 'standalone'
@@ -90,8 +102,10 @@ Add-PodeRoute -Method 'Post' -Path '/api/setup/init' -ScriptBlock {
         $roleInput  = $body.role ?? $body.roles
         if ($mode -eq 'standalone' -or -not $roleInput) {
             $roles = @('root', 'intermediate', 'issuing')
+        } elseif ($roleInput -is [array]) {
+            $roles = @($roleInput)
         } else {
-            $roles = @(if ($roleInput -is [array]) { $roleInput } else { @($roleInput) })
+            $roles = @([string]$roleInput)
         }
         $subj       = $body.subject ?? @{}
         $keyAlgo    = $body.keyAlgo ?? 'rsa'
@@ -216,6 +230,7 @@ Add-PodeRoute -Method 'Post' -Path '/api/setup/init' -ScriptBlock {
 
         } else {
             # Distributed: non-root role (intermediate or issuing)
+            Write-Log -Category 'setup' -Message "Distributed non-root: role=$($roles[0])"
             $parentUrl  = $body.parentUrl
             $parentUser = $body.parentUser
             $parentPass = $body.parentPass
@@ -232,23 +247,27 @@ Add-PodeRoute -Method 'Post' -Path '/api/setup/init' -ScriptBlock {
             }
 
             # Authenticate against parent CA
+            Write-Log -Category 'setup' -Message "Authenticating to parent: $parentUrl/api/auth/login"
             $loginBody = @{ username = $parentUser; password = $parentPass } | ConvertTo-Json
             $loginResult = Invoke-RestMethod -Uri "$parentUrl/api/auth/login" `
                 -Method Post -ContentType 'application/json' -Body $loginBody `
                 -TimeoutSec 10 -SkipCertificateCheck
 
             if (-not $loginResult.success -or -not $loginResult.token) {
+                Write-Log -Category 'setup' -Level 'error' -Message "AUTH FAILED: $($loginResult.message ?? 'no token returned')"
                 Set-PodeResponseStatus -Code 401
                 Write-PodeJsonResponse -Value @{
                     error = "Failed to authenticate with parent CA: $($loginResult.message ?? 'invalid credentials')"
                 }
                 return
             }
+            Write-Log -Category 'setup' -Message "Auth OK — got bearer token"
 
             $parentAuthHeaders = @{ Authorization = "Bearer $($loginResult.token)" }
 
             $role = $roles[0]
             $caDir = '/ca'
+            Write-Log -Category 'setup' -Message "Initializing CA dirs for role=$role"
             Initialize-CADirectories -CADir $caDir
 
             $configMap = @{
@@ -263,6 +282,7 @@ Add-PodeRoute -Method 'Post' -Path '/api/setup/init' -ScriptBlock {
                 cn = $subj.cn ?? "$($subj.o ?? 'Example') $role CA"
             }
 
+            Write-Log -Category 'setup' -Message "Template: $templateCnf | Subject CN=$($roleSubject.cn)"
             New-PatchedConfig -TemplatePath $templateCnf -OutputPath $caCfg `
                 -Subject $roleSubject -CdpUrl $cdpUrl -AiaUrl $aiaUrl -OcspUrl $ocspUrl
 
@@ -277,27 +297,36 @@ Add-PodeRoute -Method 'Post' -Path '/api/setup/init' -ScriptBlock {
 
             # Submit CSR to parent CA (authenticated)
             $csrPEM = Get-Content "$caDir/csr/ca.csr" -Raw
-            $profile = if ($role -eq 'intermediate') { 'intermediate_ca_ext' } else { 'issuing_ca_ext' }
+            $certProfile = if ($role -eq 'intermediate') { 'intermediate_ca_ext' } else { 'issuing_ca_ext' }
             $signDays = if ($role -eq 'intermediate') { 5475 } else { 3652 }
 
-            $signBody = @{ csr = $csrPEM; profile = $profile; days = $signDays } | ConvertTo-Json -Depth 5
+            Write-Log -Category 'setup' -Message "Submitting CSR to parent: $parentUrl/api/sign-csr (profile=$certProfile, days=$signDays)"
+            $signBody = @{ csr = $csrPEM; profile = $certProfile; days = $signDays } | ConvertTo-Json -Depth 5
             $signResult = Invoke-RestMethod -Uri "$parentUrl/api/sign-csr" `
                 -Method Post -ContentType 'application/json' -Body $signBody `
                 -TimeoutSec 120 -SkipCertificateCheck -Headers $parentAuthHeaders
 
-            if (-not $signResult.certificate) { throw "Parent CA failed to sign CSR" }
+            if (-not $signResult.certificate) {
+                Write-Log -Category 'setup' -Level 'error' -Message "Parent returned no certificate. Response: $($signResult | ConvertTo-Json -Compress)"
+                throw "Parent CA failed to sign CSR"
+            }
+            Write-Log -Category 'setup' -Message "CSR signed OK — serial=$($signResult.serial)"
 
             # Install signed cert
+            Write-Log -Category 'setup' -Message "Installing signed certificate"
             $signResult.certificate | Set-Content "$caDir/certs/ca.crt"
 
             # Get parent's chain and build ours
+            Write-Log -Category 'setup' -Message "Fetching parent chain from $parentUrl/api/chain"
             try {
                 $parentChain = Invoke-RestMethod -Uri "$parentUrl/api/chain" -TimeoutSec 10 `
                     -SkipCertificateCheck -Headers $parentAuthHeaders
                 if ($parentChain.chain) {
                     $parentChain.chain | Set-Content "$caDir/chain/chain.pem"
+                    Write-Log -Category 'setup' -Message "Parent chain saved"
                 }
             } catch {
+                Write-Log -Category 'setup' -Level 'warn' -Message "Could not fetch parent chain: $($_.Exception.Message)"
                 # Parent chain not available — just save the parent cert
                 if ($signResult.certificate) {
                     $signResult.certificate | Set-Content "$caDir/chain/chain.pem"
@@ -349,12 +378,21 @@ Add-PodeRoute -Method 'Post' -Path '/api/setup/init' -ScriptBlock {
         }
 
     } catch {
-        Write-PodeHost "[Setup] ERROR: $($_.Exception.Message)"
-        Write-PodeHost "[Setup] STACK: $($_.ScriptStackTrace)"
+        Write-Log -Category 'errors' -Level 'error' -Message "Setup init error: $($_.Exception.Message)"
+        Write-Log -Category 'errors' -Level 'debug' -Message "Stack: $($_.ScriptStackTrace)"
         Set-PodeResponseStatus -Code 500
         Write-PodeJsonResponse -Value @{
             success = $false
             error   = $_.Exception.Message
         }
     }
+  } catch {
+    Write-Log -Category 'errors' -Level 'error' -Message "Setup outer error: $($_.Exception.Message)"
+    Write-Log -Category 'errors' -Level 'debug' -Message "Stack: $($_.ScriptStackTrace)"
+    Set-PodeResponseStatus -Code 500
+    Write-PodeJsonResponse -Value @{
+        success = $false
+        error   = $_.Exception.Message
+    }
+  }
 }

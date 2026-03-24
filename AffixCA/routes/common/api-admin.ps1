@@ -1,7 +1,8 @@
 # =============================================================================
 #  Common  ·  Administration API endpoints
-#  POST /api/admin/decommission — Reset this node's role and return to setup
 #  GET  /api/admin/info         — Get current node configuration details
+#  POST /api/admin/update       — Update editable configuration fields
+#  POST /api/admin/decommission — Reset this node's role and return to setup
 # =============================================================================
 
 . /app/shared/scripts/Common-Functions.ps1
@@ -27,6 +28,10 @@ Add-PodeRoute -Method 'Get' -Path '/api/admin/info' -ScriptBlock {
         keyAlgo     = $cfg.keyAlgo
         keyParam    = $cfg.keyParam
         parentUrl   = $cfg.parentUrl
+        cdpUrl      = $cfg.cdpUrl ?? ''
+        aiaUrl      = $cfg.aiaUrl ?? ''
+        ocspUrl     = $cfg.ocspUrl ?? ''
+        dnsServers  = $cfg.dnsServers ?? ''
         createdAt   = $cfg.createdAt
     }
 
@@ -45,6 +50,58 @@ Add-PodeRoute -Method 'Get' -Path '/api/admin/info' -ScriptBlock {
     }
 
     Write-PodeJsonResponse -Value $info
+}
+
+Add-PodeRoute -Method 'Post' -Path '/api/admin/update' -ScriptBlock {
+    . /app/shared/scripts/Common-Functions.ps1
+
+    $cfg = Get-InstanceConfig
+    if (-not $cfg) {
+        Set-PodeResponseStatus -Code 400
+        Write-PodeJsonResponse -Value @{ error = 'This node is not configured.' }
+        return
+    }
+
+    $body = $WebEvent.Data
+    $changed = @()
+
+    # Editable fields: parentUrl, cdpUrl, aiaUrl, ocspUrl, dnsServers
+    # Use Add-Member -Force since properties may not exist yet on the config object
+    foreach ($field in @('parentUrl', 'cdpUrl', 'aiaUrl', 'ocspUrl', 'dnsServers')) {
+        if ($null -ne $body.$field) {
+            $cfg | Add-Member -NotePropertyName $field -NotePropertyValue $body.$field -Force
+            $changed += $field
+        }
+    }
+
+    if ($changed.Count -eq 0) {
+        Write-PodeJsonResponse -Value @{ success = $true; message = 'No changes.' }
+        return
+    }
+
+    Save-InstanceConfig -Config $cfg
+    Write-Log -Category 'admin' -Message "Config updated: $($changed -join ', ')"
+
+    # Apply DNS servers to the container if changed
+    if ('dnsServers' -in $changed -and $cfg.dnsServers) {
+        try {
+            $servers = ($cfg.dnsServers -split '[,;\s]+') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+            if ($servers.Count -gt 0) {
+                $lines = @()
+                foreach ($s in $servers) { $lines += "nameserver $s" }
+                $lines | Set-Content '/etc/resolv.conf' -Force
+                Write-Log -Category 'admin' -Message "DNS servers applied: $($servers -join ', ')"
+            }
+        } catch {
+            Write-Log -Category 'admin' -Level 'warn' -Message "Could not apply DNS servers: $($_.Exception.Message)"
+        }
+    }
+
+    Write-PodeJsonResponse -Value @{
+        success = $true
+        changed = $changed
+        message = "Updated: $($changed -join ', ')"
+    }
 }
 
 Add-PodeRoute -Method 'Post' -Path '/api/admin/decommission' -ScriptBlock {
@@ -73,7 +130,7 @@ Add-PodeRoute -Method 'Post' -Path '/api/admin/decommission' -ScriptBlock {
         $roleName = ($cfg.roles -join ', ')
         $caName   = $cfg.caName
 
-        Write-PodeHost "[Admin] Decommissioning node: $caName (roles: $roleName)"
+        Write-Log -Category 'admin' -Message "Decommissioning node: $caName (roles: $roleName)"
 
         # Archive current config before removal
         $archiveDir = '/ca/archive'
@@ -110,14 +167,14 @@ Add-PodeRoute -Method 'Post' -Path '/api/admin/decommission' -ScriptBlock {
             archivedConfig = "$archiveDir/config-$ts.json"
         }
 
-        Write-PodeHost "[Admin] Decommission complete. Restarting into setup wizard..."
+        Write-Log -Category 'admin' -Message "Decommission complete. Restarting into setup wizard..."
 
         # Give response time to flush before restarting
         Start-Sleep -Seconds 2
         Restart-PodeServer
 
     } catch {
-        Write-PodeHost "[Admin] Decommission ERROR: $($_.Exception.Message)"
+        Write-Log -Category 'admin' -Level 'error' -Message "Decommission error: $($_.Exception.Message)"
         Set-PodeResponseStatus -Code 500
         Write-PodeJsonResponse -Value @{
             success = $false
